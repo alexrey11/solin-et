@@ -4,7 +4,7 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { motion, type HTMLMotionProps } from 'framer-motion';
 
-interface GlassCardProps extends HTMLMotionProps<'div'> {
+interface GlassCardProps extends Omit<HTMLMotionProps<'div'>, 'ref'> {
   hover?: boolean;
   glow?: 'orange' | 'green' | 'none';
 }
@@ -53,8 +53,8 @@ export function StatCard({
     gradient === 'solar'
       ? 'gradient-solar'
       : gradient === 'tech'
-      ? 'gradient-tech'
-      : 'gradient-success';
+        ? 'gradient-tech'
+        : 'gradient-success';
 
   return (
     <motion.div

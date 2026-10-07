@@ -7,12 +7,10 @@ import {
   Clock,
   Zap,
   DollarSign,
-  DollarSign,
   CheckCircle2,
   X,
   Plus,
   Timer,
-  Battery,
   PlayCircle,
 } from 'lucide-react';
 import { AppShell } from '@/components/soli/app-shell';
@@ -29,47 +27,69 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, seedIfEmpty, QueueItem } from '@/lib/db';
+import { toast } from 'sonner';
 
-interface QueueItem {
-  id: number;
-  name: string;
-  car: string;
-  plate: string;
-  waitTime: number;
-  chargeTime: number;
-  status: 'waiting' | 'charging' | 'done';
-  amount: number;
-  point?: string;
-}
-
-const initialQueue: QueueItem[] = [
-  { id: 1, name: 'Carlos Pérez', car: 'Nissan Leaf', plate: 'P-12345', waitTime: 0, chargeTime: 18, status: 'charging', amount: 120, point: 'P1' },
-  { id: 2, name: 'María González', car: 'BYD Dolphin', plate: 'P-67890', waitTime: 5, chargeTime: 0, status: 'waiting', amount: 0 },
-  { id: 3, name: 'José Martínez', car: 'Tesla Model 3', plate: 'P-24680', waitTime: 20, chargeTime: 0, status: 'waiting', amount: 0 },
-  { id: 4, name: 'Ana Rodríguez', car: 'JAC iEVS4', plate: 'P-13579', waitTime: 0, chargeTime: 42, status: 'done', amount: 180 },
-];
-
-const chargePoints = [
-  { id: 'P1', label: 'Punto 1', active: true },
-  { id: 'P2', label: 'Punto 2', active: false },
-  { id: 'P3', label: 'Punto 3', active: false },
-  { id: 'P4', label: 'Punto 4', active: true },
+// Puntos de carga disponibles en la solinera
+const CHARGE_POINTS = [
+  { id: 'P1', label: 'Punto 1' },
+  { id: 'P2', label: 'Punto 2' },
+  { id: 'P3', label: 'Punto 3' },
+  { id: 'P4', label: 'Punto 4' },
 ];
 
 export default function ColaPage() {
-  const [queue, setQueue] = React.useState<QueueItem[]>(initialQueue);
+  // ===== DATOS EN VIVO DESDE INDEXEDDB =====
+  const queue = useLiveQuery(
+    () => db.queue.orderBy('createdAt').reverse().toArray(),
+    []
+  ) || [];
+
+  React.useEffect(() => {
+    seedIfEmpty();
+  }, []);
+
+  // ===== ESTADOS DE UI =====
   const [collectOpen, setCollectOpen] = React.useState(false);
   const [collectItem, setCollectItem] = React.useState<QueueItem | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
 
-  const startCharge = (id: number) => {
-    setQueue((q) =>
-      q.map((item) =>
-        item.id === id
-          ? { ...item, status: 'charging', chargeTime: 1, point: 'P2' }
-          : item
-      )
-    );
+  const [newName, setNewName] = React.useState('');
+  const [newCar, setNewCar] = React.useState('');
+  const [newPlate, setNewPlate] = React.useState('');
+
+  // ===== CÁLCULO DE PUNTOS OCUPADOS =====
+  const occupiedPoints = queue
+    .filter((q) => q.status === 'charging' && q.point)
+    .map((q) => q.point as string);
+
+  const freePoints = CHARGE_POINTS.filter(
+    (cp) => !occupiedPoints.includes(cp.id)
+  );
+
+  const chargePointsWithStatus = CHARGE_POINTS.map((cp) => ({
+    ...cp,
+    active: occupiedPoints.includes(cp.id),
+  }));
+
+  // ===== ACCIONES =====
+
+  const startCharge = async (id: number) => {
+    if (freePoints.length === 0) {
+      toast.error('No hay puntos de carga libres');
+      return;
+    }
+
+    const assignedPoint = freePoints[0].id;
+
+    await db.queue.update(id, {
+      status: 'charging',
+      chargeTime: 1,
+      point: assignedPoint,
+    });
+
+    toast.success(`Asignado ${assignedPoint}`);
   };
 
   const finishCharge = (item: QueueItem) => {
@@ -77,21 +97,59 @@ export default function ColaPage() {
     setCollectOpen(true);
   };
 
-  const confirmCollect = () => {
-    if (collectItem) {
-      setQueue((q) =>
-        q.map((item) =>
-          item.id === collectItem.id ? { ...item, status: 'done' } : item
-        )
+  const confirmCollect = async () => {
+    if (collectItem && collectItem.id) {
+      const now = Date.now();
+      const chargeMinutes = Math.max(
+        1,
+        Math.round((now - collectItem.createdAt) / 60000)
       );
+
+      await db.queue.update(collectItem.id, {
+        status: 'done',
+        chargeTime: chargeMinutes,
+        finishedAt: now,
+        point: undefined,
+      });
+
+      await db.transactions.add({
+        queueItemId: collectItem.id,
+        amount: collectItem.amount,
+        method: 'transfermovil',
+        createdAt: now,
+        synced: 0,
+      });
+
+      toast.success(`Cobro registrado: ${collectItem.amount} CUP`);
     }
     setCollectOpen(false);
+    setCollectItem(null);
   };
 
-  const removeItem = (id: number) => {
-    setQueue((q) => q.filter((item) => item.id !== id));
+  const removeItem = async (id: number) => {
+    await db.queue.delete(id);
   };
 
+  const addVehicle = async () => {
+    if (!newName.trim()) return;
+    await db.queue.add({
+      name: newName.trim(),
+      car: newCar.trim() || 'Vehículo Eléctrico',
+      plate: newPlate.trim() || `P-${Math.floor(Math.random() * 99999)}`,
+      waitTime: 0,
+      chargeTime: 0,
+      status: 'waiting',
+      amount: 300,
+      createdAt: Date.now(),
+    });
+    setNewName('');
+    setNewCar('');
+    setNewPlate('');
+    setAddOpen(false);
+    toast.success('Vehículo añadido a la cola');
+  };
+
+  // ===== MÉTRICAS =====
   const charging = queue.filter((q) => q.status === 'charging').length;
   const waiting = queue.filter((q) => q.status === 'waiting').length;
   const done = queue.filter((q) => q.status === 'done').length;
@@ -103,7 +161,11 @@ export default function ColaPage() {
           title="Gestión de Cola"
           subtitle="Asigna puntos de carga y cobra a tus clientes"
           action={
-            <Button className="gradient-solar text-white hover:opacity-90" size="sm" onClick={() => setAddOpen(true)}>
+            <Button
+              className="gradient-solar text-white hover:opacity-90"
+              size="sm"
+              onClick={() => setAddOpen(true)}
+            >
               <Plus className="mr-2 h-4 w-4" /> Añadir vehículo
             </Button>
           }
@@ -134,23 +196,36 @@ export default function ColaPage() {
         {/* Charge Points */}
         <FadeIn delay={0.3}>
           <GlassCard className="p-5">
-            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">Puntos de carga</h3>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-muted-foreground">
+                Puntos de carga
+              </h3>
+              <span className="text-xs text-muted-foreground">
+                {freePoints.length} de {CHARGE_POINTS.length} libres
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {chargePoints.map((cp) => (
+              {chargePointsWithStatus.map((cp) => (
                 <div
                   key={cp.id}
-                  className={`flex items-center gap-2 rounded-xl border p-3 ${
-                    cp.active
+                  className={`flex items-center gap-2 rounded-xl border p-3 ${cp.active
                       ? 'border-success/30 bg-success/5'
                       : 'border-border/50 bg-card/30'
-                  }`}
+                    }`}
                 >
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${cp.active ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground'}`}>
+                  <div
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg ${cp.active
+                        ? 'bg-success/15 text-success'
+                        : 'bg-muted text-muted-foreground'
+                      }`}
+                  >
                     <Zap className="h-4 w-4" />
                   </div>
                   <div>
                     <p className="text-sm font-medium">{cp.label}</p>
-                    <p className="text-xs text-muted-foreground">{cp.active ? 'Ocupado' : 'Libre'}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {cp.active ? 'Ocupado' : 'Libre'}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -191,15 +266,15 @@ export default function ColaPage() {
                               item.status === 'charging'
                                 ? 'success'
                                 : item.status === 'waiting'
-                                ? 'warning'
-                                : 'default'
+                                  ? 'warning'
+                                  : 'default'
                             }
                           >
                             {item.status === 'charging'
                               ? 'Cargando'
                               : item.status === 'waiting'
-                              ? 'En espera'
-                              : 'Completado'}
+                                ? 'En espera'
+                                : 'Completado'}
                           </SoliBadge>
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -213,34 +288,58 @@ export default function ColaPage() {
                       {item.status === 'charging' && (
                         <div className="flex items-center gap-2 text-success">
                           <Timer className="h-4 w-4" />
-                          <span className="text-sm font-mono font-semibold">{item.chargeTime}:00</span>
+                          <span className="text-sm font-mono font-semibold">
+                            {item.chargeTime}:00
+                          </span>
                         </div>
                       )}
                       {item.status === 'waiting' && (
                         <div className="flex items-center gap-2 text-warning">
                           <Clock className="h-4 w-4" />
-                          <span className="text-sm font-medium">{item.waitTime} min</span>
+                          <span className="text-sm font-medium">
+                            {item.waitTime} min
+                          </span>
                         </div>
                       )}
                       {item.status === 'done' && (
                         <div className="flex items-center gap-2 text-primary">
                           <DollarSign className="h-4 w-4" />
-                          <span className="text-sm font-semibold">{item.amount} CUP</span>
+                          <span className="text-sm font-semibold">
+                            {item.amount} CUP
+                          </span>
                         </div>
                       )}
 
                       {item.status === 'waiting' && (
-                        <Button size="sm" variant="outline" onClick={() => startCharge(item.id)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => item.id && startCharge(item.id)}
+                          disabled={freePoints.length === 0}
+                          title={
+                            freePoints.length === 0
+                              ? 'No hay puntos libres'
+                              : 'Iniciar carga'
+                          }
+                        >
                           <PlayCircle className="mr-1 h-4 w-4" /> Iniciar
                         </Button>
                       )}
                       {item.status === 'charging' && (
-                        <Button size="sm" className="gradient-solar text-white hover:opacity-90" onClick={() => finishCharge(item)}>
+                        <Button
+                          size="sm"
+                          className="gradient-solar text-white hover:opacity-90"
+                          onClick={() => finishCharge(item)}
+                        >
                           <DollarSign className="mr-1 h-4 w-4" /> Cobrar
                         </Button>
                       )}
                       {item.status === 'done' && (
-                        <Button size="sm" variant="ghost" onClick={() => removeItem(item.id)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => item.id && removeItem(item.id)}
+                        >
                           <X className="h-4 w-4" />
                         </Button>
                       )}
@@ -275,27 +374,38 @@ export default function ColaPage() {
                   <Clock className="h-5 w-5 text-muted-foreground" />
                   <span className="text-sm">Tiempo de carga</span>
                 </div>
-                <span className="font-mono font-semibold">{collectItem.chargeTime} min</span>
+                <span className="font-mono font-semibold">
+                  {collectItem.chargeTime} min
+                </span>
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-4">
                 <div className="flex items-center gap-2">
                   <Zap className="h-5 w-5 text-muted-foreground" />
                   <span className="text-sm">Energía consumida</span>
                 </div>
-                <span className="font-mono font-semibold">{Math.round(collectItem.chargeTime * 0.4)} kWh</span>
+                <span className="font-mono font-semibold">
+                  {Math.round(collectItem.chargeTime * 0.4)} kWh
+                </span>
               </div>
               <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 p-4">
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-5 w-5 text-primary" />
                   <span className="font-medium">Total a cobrar</span>
                 </div>
-                <span className="text-xl font-bold text-primary">{collectItem.amount} CUP</span>
+                <span className="text-xl font-bold text-primary">
+                  {collectItem.amount} CUP
+                </span>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCollectOpen(false)}>Cancelar</Button>
-            <Button className="gradient-solar text-white hover:opacity-90" onClick={confirmCollect}>
+            <Button variant="outline" onClick={() => setCollectOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              className="gradient-solar text-white hover:opacity-90"
+              onClick={confirmCollect}
+            >
               <CheckCircle2 className="mr-2 h-4 w-4" /> Confirmar cobro
             </Button>
           </DialogFooter>
@@ -307,31 +417,49 @@ export default function ColaPage() {
         <DialogContent className="glass-strong border-border/50">
           <DialogHeader>
             <DialogTitle>Añadir vehículo a la cola</DialogTitle>
-            <DialogDescription>Registra un nuevo cliente para carga</DialogDescription>
+            <DialogDescription>
+              Registra un nuevo cliente para carga
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-2">
               <Label htmlFor="cust-name">Nombre del cliente</Label>
-              <Input id="cust-name" placeholder="Ej: Pedro Hernández" />
+              <Input
+                id="cust-name"
+                placeholder="Ej: Pedro Hernández"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="cust-car">Vehículo</Label>
-                <Input id="cust-car" placeholder="Ej: Nissan Leaf" />
+                <Input
+                  id="cust-car"
+                  placeholder="Ej: Nissan Leaf"
+                  value={newCar}
+                  onChange={(e) => setNewCar(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cust-plate">Matrícula</Label>
-                <Input id="cust-plate" placeholder="P-00000" />
+                <Input
+                  id="cust-plate"
+                  placeholder="P-00000"
+                  value={newPlate}
+                  onChange={(e) => setNewPlate(e.target.value)}
+                />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>
+              Cancelar
+            </Button>
             <Button
               className="gradient-solar text-white hover:opacity-90"
-              onClick={() => {
-                setAddOpen(false);
-              }}
+              onClick={addVehicle}
+              disabled={!newName.trim()}
             >
               <Plus className="mr-2 h-4 w-4" /> Añadir a la cola
             </Button>
