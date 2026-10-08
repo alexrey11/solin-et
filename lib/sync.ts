@@ -28,6 +28,7 @@ function error(msg: string, err?: any) {
 
 async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
     const supabase = createClient();
+    const user = await getCurrentUser();
     const errors: string[] = [];
     let pushed = 0;
 
@@ -43,8 +44,6 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
         for (const solinera of pendingSolineras) {
             const { id, syncStatus, supabaseId, userId, ...rest } = solinera;
 
-            log(`Procesando solinera local ID=${id}, supabaseId=${supabaseId || 'NINGUNO'}`);
-
             const payload: any = {
                 name: rest.name,
                 address: rest.address,
@@ -55,11 +54,11 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
                 opening_hours: rest.openingHours,
                 closing_hours: rest.closingHours,
                 phone: rest.phone,
+                owner_email: user?.email || '', // ← NUEVO
             };
 
             let result;
             if (supabaseId) {
-                log(`→ UPDATE en Supabase id=${supabaseId}`);
                 result = await supabase
                     .from('solineras')
                     .update(payload)
@@ -67,7 +66,6 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
                     .select()
                     .single();
             } else {
-                log(`→ INSERT en Supabase (nueva)`);
                 result = await supabase
                     .from('solineras')
                     .insert(payload)
@@ -85,11 +83,8 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
                 supabaseId: result.data.id,
                 syncStatus: 'synced',
             });
-
-            const check = await db.solineras.get(id!);
-            log(`→ Verificación: supabaseId=${check?.supabaseId}, syncStatus=${check?.syncStatus}`);
-
             pushed++;
+            log(`Solinera ${id} sincronizada → ${result.data.id}`);
         }
     } catch (err: any) {
         console.error('[Sync] Exception solineras:', err);
@@ -157,7 +152,14 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
         log(`Reservas pendientes: ${pendingReservations.length}`);
 
         for (const reservation of pendingReservations) {
-            const { id, syncStatus, supabaseId, driverId, solineraId, ...rest } = reservation;
+            const {
+                id,
+                syncStatus,
+                supabaseId,
+                driverId,
+                solineraId,
+                ...rest
+            } = reservation;
 
             const driver = await db.drivers.get(driverId);
             const solinera = await db.solineras.get(solineraId);
@@ -178,6 +180,7 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
                 amount: rest.amount,
                 payment_method: rest.method,
                 status: rest.status,
+                short_code: rest.shortCode,
             };
 
             let result;
@@ -221,19 +224,32 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
 
 async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> {
     const supabase = createClient();
+    const user = await getCurrentUser();
     const errors: string[] = [];
     let pulled = 0;
 
+    // Si NO hay usuario, no bajar nada
+    if (!user) {
+        return { count: 0, errors: [] };
+    }
+
+    const isBusiness = user.role === 'business';
+
     // 1. Pull solineras
     try {
-        const { data: solineras, error: solinerasError } = await supabase
-            .from('solineras')
-            .select('*');
+        let query = supabase.from('solineras').select('*');
+
+        // Si es negocio, solo bajar SU solinera
+        if (isBusiness && user.email) {
+            query = query.eq('owner_email', user.email);
+        }
+
+        const { data: solineras, error: solinerasError } = await query;
 
         if (solinerasError) {
             errors.push(`Pull solineras: ${solinerasError.message}`);
         } else if (solineras) {
-            log(`Pull: ${solineras.length} solineras en Supabase`);
+            log(`Pull: ${solineras.length} solineras en Supabase (${isBusiness ? 'business' : 'driver'})`);
 
             for (const remote of solineras) {
                 const existingBySupabaseId = await db.solineras
@@ -243,7 +259,6 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
 
                 if (existingBySupabaseId && existingBySupabaseId.id) {
                     if (existingBySupabaseId.syncStatus === 'pending') {
-                        log(`Solinera ${remote.id}: local pendiente, se omite pull`);
                         continue;
                     }
 
@@ -277,7 +292,6 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                         syncStatus: 'synced',
                     });
                     pulled++;
-                    log(`Solinera ${remote.id}: nueva local (bajada)`);
                 }
             }
         }
@@ -286,56 +300,74 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
         errors.push(`Exception pull solineras: ${err.message}`);
     }
 
-    // 2. Pull driver_profiles
-    try {
-        const { data: drivers, error: driversError } = await supabase
-            .from('driver_profiles')
-            .select('*');
+    // 2. Pull driver_profiles (solo si es business, para ver a sus clientes)
+    if (isBusiness) {
+        try {
+            const { data: drivers, error: driversError } = await supabase
+                .from('driver_profiles')
+                .select('*');
 
-        if (driversError) {
-            errors.push(`Pull drivers: ${driversError.message}`);
-        } else if (drivers) {
-            log(`Pull: ${drivers.length} drivers en Supabase`);
+            if (driversError) {
+                errors.push(`Pull drivers: ${driversError.message}`);
+            } else if (drivers) {
+                log(`Pull: ${drivers.length} drivers en Supabase`);
 
-            for (const remote of drivers) {
-                const existing = await db.drivers
-                    .where('supabaseId')
-                    .equals(remote.id)
-                    .first();
+                for (const remote of drivers) {
+                    const existing = await db.drivers
+                        .where('supabaseId')
+                        .equals(remote.id)
+                        .first();
 
-                if (existing && existing.id) {
-                    if (existing.syncStatus === 'pending') continue;
+                    if (existing && existing.id) {
+                        if (existing.syncStatus === 'pending') continue;
 
-                    await db.drivers.update(existing.id, {
-                        plate: remote.plate,
-                        car: remote.car,
-                        syncStatus: 'synced',
-                    });
-                    pulled++;
-                } else {
-                    await db.drivers.add({
-                        supabaseId: remote.id,
-                        name: '',
-                        phone: '',
-                        plate: remote.plate,
-                        car: remote.car,
-                        createdAt: new Date(remote.updated_at).getTime(),
-                        syncStatus: 'synced',
-                    });
-                    pulled++;
+                        await db.drivers.update(existing.id, {
+                            plate: remote.plate,
+                            car: remote.car,
+                            syncStatus: 'synced',
+                        });
+                        pulled++;
+                    } else {
+                        await db.drivers.add({
+                            supabaseId: remote.id,
+                            name: '',
+                            phone: '',
+                            plate: remote.plate,
+                            car: remote.car,
+                            createdAt: new Date(remote.updated_at).getTime(),
+                            syncStatus: 'synced',
+                        });
+                        pulled++;
+                    }
                 }
             }
+        } catch (err: any) {
+            error('Error pulling drivers', err);
+            errors.push(`Exception pull drivers: ${err.message}`);
         }
-    } catch (err: any) {
-        error('Error pulling drivers', err);
-        errors.push(`Exception pull drivers: ${err.message}`);
     }
 
     // 3. Pull charge_requests
     try {
-        const { data: requests, error: requestsError } = await supabase
-            .from('charge_requests')
-            .select('*');
+        let query = supabase.from('charge_requests').select('*');
+
+        // Si es business, solo bajar reservas de SUS solineras
+        if (isBusiness) {
+            // Primero obtenemos los supabaseId de las solineras del business
+            const mySolineras = await db.solineras
+                .filter((s) => s.supabaseId != null && s.supabaseId !== '')
+                .toArray();
+            const myIds = mySolineras.map((s) => s.supabaseId);
+
+            if (myIds.length > 0) {
+                query = query.in('solinera_id', myIds as any);
+            } else {
+                // No tiene solineras aún, no bajar nada
+                return { count: pulled, errors };
+            }
+        }
+
+        const { data: requests, error: requestsError } = await query;
 
         if (requestsError) {
             errors.push(`Pull reservations: ${requestsError.message}`);
@@ -367,6 +399,7 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                     amount: remote.amount,
                     method: remote.payment_method,
                     status: remote.status,
+                    shortCode: remote.short_code || '',
                     createdAt: new Date(remote.created_at).getTime(),
                     syncStatus: 'synced' as const,
                 };

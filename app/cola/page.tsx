@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Link from 'next/link';
 import {
   Car,
   Clock,
@@ -12,6 +13,11 @@ import {
   Plus,
   Timer,
   PlayCircle,
+  QrCode,
+  Calendar,
+  Smartphone,
+  CreditCard,
+  Check,
 } from 'lucide-react';
 import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, SoliBadge, StatusIndicator } from '@/components/soli/glass-card';
@@ -28,10 +34,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, seedIfEmpty, QueueItem } from '@/lib/db';
+import { db, seedIfEmpty, QueueItem, Reservation } from '@/lib/db';
 import { toast } from 'sonner';
 
-// Puntos de carga disponibles en la solinera
+// Puntos de carga
 const CHARGE_POINTS = [
   { id: 'P1', label: 'Punto 1' },
   { id: 'P2', label: 'Punto 2' },
@@ -40,9 +46,20 @@ const CHARGE_POINTS = [
 ];
 
 export default function ColaPage() {
-  // ===== DATOS EN VIVO DESDE INDEXEDDB =====
+  // ===== DATOS EN VIVO =====
   const queue = useLiveQuery(
     () => db.queue.orderBy('createdAt').reverse().toArray(),
+    []
+  ) || [];
+
+  const pendingReservations = useLiveQuery(
+    () => db.reservations.where('status').equals('pending').reverse().toArray(),
+    []
+  ) || [];
+
+  const confirmedReservations = useLiveQuery(
+    () =>
+      db.reservations.where('status').equals('confirmed').reverse().toArray(),
     []
   ) || [];
 
@@ -59,7 +76,7 @@ export default function ColaPage() {
   const [newCar, setNewCar] = React.useState('');
   const [newPlate, setNewPlate] = React.useState('');
 
-  // ===== CÁLCULO DE PUNTOS OCUPADOS =====
+  // ===== PUNTOS DE CARGA =====
   const occupiedPoints = queue
     .filter((q) => q.status === 'charging' && q.point)
     .map((q) => q.point as string);
@@ -73,7 +90,7 @@ export default function ColaPage() {
     active: occupiedPoints.includes(cp.id),
   }));
 
-  // ===== ACCIONES =====
+  // ===== ACCIONES DE LA COLA =====
 
   const startCharge = async (id: number) => {
     if (freePoints.length === 0) {
@@ -149,6 +166,27 @@ export default function ColaPage() {
     toast.success('Vehículo añadido a la cola');
   };
 
+  // ===== ACCIONES DE RESERVAS =====
+
+  const acceptReservation = async (reservation: Reservation) => {
+    if (!reservation.id) return;
+    await db.reservations.update(reservation.id, {
+      status: 'confirmed',
+      confirmedAt: Date.now(),
+      syncStatus: 'pending',
+    });
+    toast.success('Reserva aceptada. El conductor fue notificado.');
+  };
+
+  const rejectReservation = async (reservation: Reservation) => {
+    if (!reservation.id) return;
+    await db.reservations.update(reservation.id, {
+      status: 'cancelled',
+      syncStatus: 'pending',
+    });
+    toast.info('Reserva rechazada');
+  };
+
   // ===== MÉTRICAS =====
   const charging = queue.filter((q) => q.status === 'charging').length;
   const waiting = queue.filter((q) => q.status === 'waiting').length;
@@ -159,19 +197,164 @@ export default function ColaPage() {
       <div className="space-y-6">
         <PageHeader
           title="Gestión de Cola"
-          subtitle="Asigna puntos de carga y cobra a tus clientes"
+          subtitle="Reservas, entrada de vehículos y control de carga"
           action={
-            <Button
-              className="gradient-solar text-white hover:opacity-90"
-              size="sm"
-              onClick={() => setAddOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" /> Añadir vehículo
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/escanear">
+                  <QrCode className="mr-2 h-4 w-4" /> Escanear QR
+                </Link>
+              </Button>
+              <Button
+                className="gradient-solar text-white hover:opacity-90"
+                size="sm"
+                onClick={() => setAddOpen(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" /> Añadir vehículo
+              </Button>
+            </div>
           }
         />
 
-        {/* Stats */}
+        {/* ===== SOLICITUDES DE RESERVA (PENDIENTES) ===== */}
+        {pendingReservations.length > 0 && (
+          <FadeIn delay={0.05}>
+            <GlassCard className="border-info/30 bg-info/5 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Calendar className="h-5 w-5 text-info" />
+                  <h3 className="text-lg font-semibold">
+                    Solicitudes de reserva
+                  </h3>
+                  <SoliBadge variant="info">
+                    {pendingReservations.length}
+                  </SoliBadge>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Acepta o rechaza las solicitudes de los conductores
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {pendingReservations.map((r, idx) => (
+                  <motion.div
+                    key={r.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-tech text-white">
+                        <Car className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="font-medium">
+                          {r.solineraName || 'Reserva'}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> {r.slot}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <DollarSign className="h-3 w-3" /> {r.amount} CUP
+                          </span>
+                          <span className="flex items-center gap-1 uppercase">
+                            {r.method === 'transfermovil' ? (
+                              <Smartphone className="h-3 w-3" />
+                            ) : (
+                              <CreditCard className="h-3 w-3" />
+                            )}
+                            {r.method}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => rejectReservation(r)}
+                      >
+                        <X className="mr-1 h-4 w-4" /> Rechazar
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="gradient-solar text-white hover:opacity-90"
+                        onClick={() => acceptReservation(r)}
+                      >
+                        <Check className="mr-1 h-4 w-4" /> Aceptar
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </GlassCard>
+          </FadeIn>
+        )}
+
+        {/* ===== RESERVAS CONFIRMADAS (ESPERANDO LLEGADA) ===== */}
+        {confirmedReservations.length > 0 && (
+          <FadeIn delay={0.08}>
+            <GlassCard className="border-success/30 bg-success/5 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Clock className="h-5 w-5 text-success" />
+                  <h3 className="text-lg font-semibold">Esperando llegada</h3>
+                  <SoliBadge variant="success">
+                    {confirmedReservations.length}
+                  </SoliBadge>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Escanea el QR del conductor cuando llegue
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {confirmedReservations.map((r, idx) => (
+                  <motion.div
+                    key={r.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-solar text-white">
+                        <Check className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="font-medium">{r.solineraName}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> {r.slot}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <DollarSign className="h-3 w-3" /> {r.amount} CUP
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button
+                      size="sm"
+                      className="gradient-solar text-white hover:opacity-90"
+                      asChild
+                    >
+                      <Link href="/escanear">
+                        <QrCode className="mr-1 h-4 w-4" /> Escanear llegada
+                      </Link>
+                    </Button>
+                  </motion.div>
+                ))}
+              </div>
+            </GlassCard>
+          </FadeIn>
+        )}
+
+        {/* ===== STATS ===== */}
         <div className="grid grid-cols-3 gap-4">
           <FadeIn delay={0}>
             <GlassCard className="p-4 text-center">
@@ -193,7 +376,7 @@ export default function ColaPage() {
           </FadeIn>
         </div>
 
-        {/* Charge Points */}
+        {/* ===== PUNTOS DE CARGA ===== */}
         <FadeIn delay={0.3}>
           <GlassCard className="p-5">
             <div className="mb-3 flex items-center justify-between">
@@ -233,7 +416,7 @@ export default function ColaPage() {
           </GlassCard>
         </FadeIn>
 
-        {/* Queue List */}
+        {/* ===== LISTA DE VEHÍCULOS EN COLA ===== */}
         <FadeIn delay={0.4}>
           <GlassCard className="p-6">
             <div className="mb-4 flex items-center justify-between">
@@ -316,11 +499,6 @@ export default function ColaPage() {
                           variant="outline"
                           onClick={() => item.id && startCharge(item.id)}
                           disabled={freePoints.length === 0}
-                          title={
-                            freePoints.length === 0
-                              ? 'No hay puntos libres'
-                              : 'Iniciar carga'
-                          }
                         >
                           <PlayCircle className="mr-1 h-4 w-4" /> Iniciar
                         </Button>
@@ -358,7 +536,7 @@ export default function ColaPage() {
         </FadeIn>
       </div>
 
-      {/* Collect Dialog */}
+      {/* ===== COLLECT DIALOG ===== */}
       <Dialog open={collectOpen} onOpenChange={setCollectOpen}>
         <DialogContent className="glass-strong border-border/50">
           <DialogHeader>
@@ -376,15 +554,6 @@ export default function ColaPage() {
                 </div>
                 <span className="font-mono font-semibold">
                   {collectItem.chargeTime} min
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-4">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-sm">Energía consumida</span>
-                </div>
-                <span className="font-mono font-semibold">
-                  {Math.round(collectItem.chargeTime * 0.4)} kWh
                 </span>
               </div>
               <div className="flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 p-4">
@@ -412,7 +581,7 @@ export default function ColaPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Add Vehicle Dialog */}
+      {/* ===== ADD VEHICLE DIALOG ===== */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="glass-strong border-border/50">
           <DialogHeader>

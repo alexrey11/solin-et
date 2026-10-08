@@ -88,6 +88,7 @@ export interface Reservation {
     amount: number;
     method: 'transfermovil' | 'enzona';
     status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+    shortCode: string;
     createdAt: number;
     confirmedAt?: number;
     syncStatus?: 'pending' | 'synced';
@@ -106,14 +107,15 @@ export class SoliNetDB extends Dexie {
 
     constructor() {
         super('SoliNetDB');
-        this.version(6).stores({
+        this.version(7).stores({
             users: '++id, email, role, syncStatus, supabaseId',
             session: '++id, userId, role',
             queue: '++id, status, plate, createdAt',
             transactions: '++id, queueItemId, synced, createdAt',
             solineras: '++id, userId, name, syncStatus, supabaseId, updatedAt',
             drivers: '++id, userId, plate, syncStatus, supabaseId',
-            reservations: '++id, driverId, solineraId, status, syncStatus, supabaseId, createdAt',
+            reservations:
+                '++id, driverId, solineraId, status, syncStatus, supabaseId, shortCode, createdAt',
         });
     }
 }

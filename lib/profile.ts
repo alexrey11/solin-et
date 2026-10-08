@@ -34,7 +34,9 @@ export async function saveDriverProfile(
 
 // ===== BUSINESS PROFILE =====
 
-export async function getBusinessProfile(userId: number): Promise<Solinera | null> {
+export async function getBusinessProfile(
+    userId: number
+): Promise<Solinera | null> {
     const solinera = await db.solineras.where('userId').equals(userId).first();
     return solinera || null;
 }
@@ -73,11 +75,39 @@ export async function saveBusinessProfile(
 
 // ===== RESERVATIONS =====
 
+// Genera un código corto único, fácil de leer
+// Sin caracteres ambiguos: sin O, 0, I, 1, L
+function generateShortCode(): string {
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    return code;
+}
+
 export async function createReservation(
-    data: Omit<Reservation, 'id' | 'createdAt' | 'status' | 'syncStatus'>
+    data: Omit<
+        Reservation,
+        'id' | 'createdAt' | 'status' | 'syncStatus' | 'shortCode'
+    >
 ): Promise<number> {
+    // Generar código único (reintentar si ya existe)
+    let shortCode = generateShortCode();
+    let attempts = 0;
+    while (attempts < 10) {
+        const existing = await db.reservations
+            .where('shortCode')
+            .equals(shortCode)
+            .first();
+        if (!existing) break;
+        shortCode = generateShortCode();
+        attempts++;
+    }
+
     return await db.reservations.add({
         ...data,
+        shortCode,
         status: 'pending',
         createdAt: Date.now(),
         syncStatus: 'pending',
