@@ -107,13 +107,15 @@ export class SoliNetDB extends Dexie {
 
     constructor() {
         super('SoliNetDB');
-        this.version(7).stores({
+        this.version(9).stores({
             users: '++id, email, role, syncStatus, supabaseId',
             session: '++id, userId, role',
             queue: '++id, status, plate, createdAt',
             transactions: '++id, queueItemId, synced, createdAt',
-            solineras: '++id, userId, name, syncStatus, supabaseId, updatedAt',
-            drivers: '++id, userId, plate, syncStatus, supabaseId',
+            solineras:
+                '++id, userId, supabaseUserId, name, syncStatus, supabaseId, updatedAt',
+            drivers:
+                '++id, userId, supabaseUserId, plate, syncStatus, supabaseId',
             reservations:
                 '++id, driverId, solineraId, status, syncStatus, supabaseId, shortCode, createdAt',
         });
@@ -122,32 +124,4 @@ export class SoliNetDB extends Dexie {
 
 export const db = new SoliNetDB();
 
-// ===== HELPERS =====
-
-export async function seedIfEmpty() {
-    const count = await db.queue.count();
-    if (count === 0) {
-        await db.queue.bulkAdd([
-            {
-                name: 'Carlos M.',
-                car: 'Triciclo Eléctrico',
-                plate: 'T-123456',
-                waitTime: 0,
-                chargeTime: 0,
-                status: 'waiting',
-                amount: 300,
-                createdAt: Date.now(),
-            },
-            {
-                name: 'Yordan P.',
-                car: 'Motorina',
-                plate: 'M-789012',
-                waitTime: 0,
-                chargeTime: 0,
-                status: 'waiting',
-                amount: 250,
-                createdAt: Date.now(),
-            },
-        ]);
-    }
-}
+// ✅ seedIfEmpty ELIMINADO: no más vehículos de prueba

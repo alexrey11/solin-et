@@ -5,7 +5,6 @@ import {
   Settings,
   DollarSign,
   Bell,
-  Users,
   Sun,
   Save,
   Plus,
@@ -13,7 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { AppShell } from '@/components/soli/app-shell';
-import { GlassCard, SoliBadge } from '@/components/soli/glass-card';
+import { GlassCard } from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +20,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { getCurrentUser } from '@/lib/auth';
 import { getBusinessProfile, saveBusinessProfile } from '@/lib/profile';
 import { Solinera } from '@/lib/db';
@@ -33,7 +31,6 @@ export default function ConfiguracionPage() {
   const [saving, setSaving] = React.useState(false);
   const [userId, setUserId] = React.useState<number | null>(null);
 
-  // Cargar usuario y su solinera
   React.useEffect(() => {
     const load = async () => {
       const user = await getCurrentUser();
@@ -46,7 +43,6 @@ export default function ConfiguracionPage() {
       if (p) {
         setProfile(p);
       } else {
-        // Crear solinera vacía si no existe
         await saveBusinessProfile(user.id, {
           name: `${user.name}`,
           owner: user.name,
@@ -61,7 +57,6 @@ export default function ConfiguracionPage() {
     load();
   }, []);
 
-  // ⚠️ HOOKS SIEMPRE ARRIBA, ANTES DE CUALQUIER RETURN
   const points = React.useMemo(() => {
     if (!profile) return [];
     const count = profile.points || 0;
@@ -137,9 +132,6 @@ export default function ConfiguracionPage() {
             </TabsTrigger>
             <TabsTrigger value="tariffs">
               <DollarSign className="mr-2 h-4 w-4" /> Tarifas
-            </TabsTrigger>
-            <TabsTrigger value="users">
-              <Users className="mr-2 h-4 w-4" /> Usuarios
             </TabsTrigger>
             <TabsTrigger value="notifications">
               <Bell className="mr-2 h-4 w-4" /> Notificaciones
@@ -226,9 +218,6 @@ export default function ConfiguracionPage() {
                           </p>
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm">
-                        <Settings className="h-4 w-4" />
-                      </Button>
                     </div>
                   ))}
                   <Button
@@ -284,60 +273,6 @@ export default function ConfiguracionPage() {
                     label="Tarifa premium en horas pico (12:00 - 14:00)"
                     description="Recargo del 10% en horas de máxima demanda"
                   />
-                </div>
-              </GlassCard>
-            </FadeIn>
-          </TabsContent>
-
-          {/* Users */}
-          <TabsContent value="users" className="space-y-6">
-            <FadeIn delay={0.1}>
-              <GlassCard className="p-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Usuarios del sistema</h3>
-                  <Button size="sm" variant="outline">
-                    <Plus className="mr-2 h-4 w-4" /> Invitar usuario
-                  </Button>
-                </div>
-                <div className="space-y-3">
-                  {[
-                    {
-                      name: 'Ana Castillo',
-                      email: 'ana@solinet.cu',
-                      role: 'Administradora',
-                      initials: 'AC',
-                    },
-                    {
-                      name: 'Luis Fernández',
-                      email: 'luis@solinet.cu',
-                      role: 'Operador',
-                      initials: 'LF',
-                    },
-                  ].map((u) => (
-                    <div
-                      key={u.email}
-                      className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-4"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarFallback className="gradient-solar text-white">
-                            {u.initials}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{u.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {u.email}
-                          </p>
-                        </div>
-                      </div>
-                      <SoliBadge
-                        variant={u.role === 'Administradora' ? 'solar' : 'info'}
-                      >
-                        {u.role}
-                      </SoliBadge>
-                    </div>
-                  ))}
                 </div>
               </GlassCard>
             </FadeIn>

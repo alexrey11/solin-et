@@ -1,103 +1,169 @@
-import { db, User, Session } from './db';
+import { createClient } from '@/lib/supabase/client';
+import { db, User } from './db';
 
-// ===== HASHING =====
-async function hashPassword(password: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + 'solinet-salt-2026');
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+// ===== TIPOS =====
+
+export interface AuthResult {
+    success: boolean;
+    user?: User;
+    error?: string;
 }
 
 // ===== REGISTRO =====
+
 export async function registerUser(data: {
     role: 'driver' | 'business';
     name: string;
     email: string;
     phone?: string;
     password: string;
-}): Promise<User> {
-    const email = data.email.trim().toLowerCase();
+}): Promise<AuthResult> {
+    const supabase = createClient();
 
-    // Verificar que no exista
-    const existing = await db.users.where('email').equals(email).first();
-    if (existing) {
-        throw new Error('Ya existe una cuenta con ese correo');
+    const { data: authData, error } = await supabase.auth.signUp({
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+        options: {
+            data: {
+                role: data.role,
+                name: data.name.trim(),
+                phone: data.phone?.trim() || '',
+            },
+        },
+    });
+
+    if (error) {
+        return { success: false, error: error.message };
     }
 
-    const passwordHash = await hashPassword(data.password);
+    if (!authData.user) {
+        return { success: false, error: 'No se pudo crear el usuario' };
+    }
 
+    // Crear usuario local en Dexie también
     const userId = await db.users.add({
+        supabaseId: authData.user.id,
         role: data.role,
         name: data.name.trim(),
-        email,
+        email: data.email.trim().toLowerCase(),
         phone: data.phone?.trim(),
-        passwordHash,
+        passwordHash: '', // Ya no usamos hash local
         createdAt: Date.now(),
+        syncStatus: 'synced',
     });
 
-    // Crear sesión
-    await db.session.clear();
-    await db.session.add({
-        userId,
+    const localUser: User = {
+        id: userId,
+        supabaseId: authData.user.id,
         role: data.role,
+        name: data.name.trim(),
+        email: data.email.trim().toLowerCase(),
+        phone: data.phone?.trim(),
+        passwordHash: '',
         createdAt: Date.now(),
-    });
+    };
 
-    const user = await db.users.get(userId);
-    return user!;
+    return { success: true, user: localUser };
 }
 
 // ===== LOGIN =====
+
 export async function loginUser(
     email: string,
     password: string
-): Promise<User> {
-    const normalizedEmail = email.trim().toLowerCase();
-    const user = await db.users.where('email').equals(normalizedEmail).first();
+): Promise<AuthResult> {
+    const supabase = createClient();
 
-    if (!user) {
-        throw new Error('Usuario no encontrado');
-    }
-
-    const passwordHash = await hashPassword(password);
-    if (user.passwordHash !== passwordHash) {
-        throw new Error('Contraseña incorrecta');
-    }
-
-    // Crear sesión
-    await db.session.clear();
-    await db.session.add({
-        userId: user.id!,
-        role: user.role,
-        createdAt: Date.now(),
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
     });
 
-    return user;
+    if (error) {
+        return { success: false, error: error.message };
+    }
+
+    if (!data.user) {
+        return { success: false, error: 'Credenciales incorrectas' };
+    }
+
+    // Buscar o crear usuario local
+    let localUser = await db.users
+        .where('supabaseId')
+        .equals(data.user.id)
+        .first();
+
+    if (!localUser) {
+        // Crear usuario local si no existe (por si limpiaron IndexedDB)
+        const id = await db.users.add({
+            supabaseId: data.user.id,
+            role: (data.user.user_metadata?.role as 'driver' | 'business') || 'driver',
+            name: data.user.user_metadata?.name || 'Usuario',
+            email: data.user.email || email,
+            phone: data.user.user_metadata?.phone || '',
+            passwordHash: '',
+            createdAt: Date.now(),
+            syncStatus: 'synced',
+        });
+        localUser = await db.users.get(id);
+    }
+
+    return { success: true, user: localUser! };
 }
 
-// ===== SESIÓN =====
-export async function getCurrentUser(): Promise<User | null> {
-    const session = await db.session.toArray();
-    if (session.length === 0) return null;
-    const current = session[0];
-    const user = await db.users.get(current.userId);
-    return user || null;
-}
-
-export async function getSession(): Promise<Session | null> {
-    const sessions = await db.session.toArray();
-    return sessions[0] || null;
-}
+// ===== LOGOUT =====
 
 export async function logoutUser(): Promise<void> {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+
+    // Limpiar sesión local
     await db.session.clear();
     if (typeof window !== 'undefined') {
         localStorage.removeItem('solinet_mode');
     }
 }
 
+// ===== SESIÓN ACTUAL =====
+
+export async function getCurrentUser(): Promise<User | null> {
+    const supabase = createClient();
+
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        // Limpiar cualquier usuario local que quede
+        await db.users.clear();
+        return null;
+    }
+
+    // Buscar o crear usuario local
+    let localUser = await db.users
+        .where('supabaseId')
+        .equals(user.id)
+        .first();
+
+    if (!localUser) {
+        const id = await db.users.add({
+            supabaseId: user.id,
+            role: (user.user_metadata?.role as 'driver' | 'business') || 'driver',
+            name: user.user_metadata?.name || 'Usuario',
+            email: user.email || '',
+            phone: user.user_metadata?.phone || '',
+            passwordHash: '',
+            createdAt: Date.now(),
+            syncStatus: 'synced',
+        });
+        localUser = await db.users.get(id);
+    }
+
+    return localUser || null;
+}
+
 // ===== ACTUALIZAR USUARIO =====
+
 export async function updateUser(
     userId: number,
     data: Partial<User>

@@ -13,7 +13,6 @@ export default function SelectModePage() {
     const router = useRouter();
     const [checking, setChecking] = React.useState(true);
 
-    // Si ya hay sesión, redirigir
     React.useEffect(() => {
         const check = async () => {
             const user = await getCurrentUser();

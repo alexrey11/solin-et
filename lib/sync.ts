@@ -24,27 +24,53 @@ function error(msg: string, err?: any) {
     console.error(`[Sync] ${msg}`, err);
 }
 
-// ===== PUSH: Enviar cambios locales a Supabase =====
+// ===== PUSH =====
 
 async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
     const supabase = createClient();
-    const user = await getCurrentUser();
     const errors: string[] = [];
     let pushed = 0;
 
+    const {
+        data: { user: authUser },
+    } = await supabase.auth.getUser();
+
+    if (!authUser) {
+        log('No hay usuario autenticado en Supabase');
+        return { count: 0, errors: ['No autenticado en Supabase'] };
+    }
+
+    const supabaseUserId = authUser.id;
+
     // 1. Sync solineras
     try {
-        const pendingSolineras = await db.solineras
+        const allPendingSolineras = await db.solineras
             .where('syncStatus')
             .equals('pending')
             .toArray();
 
-        log(`Solineras pendientes: ${pendingSolineras.length}`);
+        const mySolineras = allPendingSolineras.filter(
+            (s) => s.supabaseUserId === supabaseUserId || !s.supabaseUserId
+        );
+        const othersSolineras = allPendingSolineras.filter(
+            (s) => s.supabaseUserId && s.supabaseUserId !== supabaseUserId
+        );
 
-        for (const solinera of pendingSolineras) {
+        log(
+            `Solineras pendientes: ${mySolineras.length} mías, ${othersSolineras.length} de otros`
+        );
+
+        for (const other of othersSolineras) {
+            if (other.id) {
+                await db.solineras.update(other.id, { syncStatus: 'synced' });
+            }
+        }
+
+        for (const solinera of mySolineras) {
             const { id, syncStatus, supabaseId, userId, ...rest } = solinera;
 
             const payload: any = {
+                user_id: supabaseUserId,
                 name: rest.name,
                 address: rest.address,
                 lat: rest.lat,
@@ -54,15 +80,20 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
                 opening_hours: rest.openingHours,
                 closing_hours: rest.closingHours,
                 phone: rest.phone,
-                owner_email: user?.email || '', // ← NUEVO
             };
 
+            const { data: existing } = await supabase
+                .from('solineras')
+                .select('id')
+                .eq('user_id', supabaseUserId)
+                .maybeSingle();
+
             let result;
-            if (supabaseId) {
+            if (existing && existing.id) {
                 result = await supabase
                     .from('solineras')
                     .update(payload)
-                    .eq('id', supabaseId)
+                    .eq('id', existing.id)
                     .select()
                     .single();
             } else {
@@ -81,6 +112,7 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
 
             await db.solineras.update(id!, {
                 supabaseId: result.data.id,
+                supabaseUserId: supabaseUserId,
                 syncStatus: 'synced',
             });
             pushed++;
@@ -93,27 +125,49 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
 
     // 2. Sync drivers
     try {
-        const pendingDrivers = await db.drivers
+        const allPendingDrivers = await db.drivers
             .where('syncStatus')
             .equals('pending')
             .toArray();
 
-        log(`Drivers pendientes: ${pendingDrivers.length}`);
+        const myDrivers = allPendingDrivers.filter(
+            (d) => d.supabaseUserId === supabaseUserId || !d.supabaseUserId
+        );
+        const othersDrivers = allPendingDrivers.filter(
+            (d) => d.supabaseUserId && d.supabaseUserId !== supabaseUserId
+        );
 
-        for (const driver of pendingDrivers) {
+        log(
+            `Drivers pendientes: ${myDrivers.length} míos, ${othersDrivers.length} de otros`
+        );
+
+        for (const other of othersDrivers) {
+            if (other.id) {
+                await db.drivers.update(other.id, { syncStatus: 'synced' });
+            }
+        }
+
+        for (const driver of myDrivers) {
             const { id, syncStatus, supabaseId, userId, ...rest } = driver;
 
             const payload: any = {
+                user_id: supabaseUserId,
                 plate: rest.plate,
                 car: rest.car,
             };
 
+            const { data: existing } = await supabase
+                .from('driver_profiles')
+                .select('id')
+                .eq('user_id', supabaseUserId)
+                .maybeSingle();
+
             let result;
-            if (supabaseId) {
+            if (existing && existing.id) {
                 result = await supabase
                     .from('driver_profiles')
                     .update(payload)
-                    .eq('id', supabaseId)
+                    .eq('id', existing.id)
                     .select()
                     .single();
             } else {
@@ -132,6 +186,7 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
 
             await db.drivers.update(id!, {
                 supabaseId: result.data.id,
+                supabaseUserId: supabaseUserId,
                 syncStatus: 'synced',
             });
             pushed++;
@@ -150,8 +205,18 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
             .toArray();
 
         log(`Reservas pendientes: ${pendingReservations.length}`);
-
-        for (const reservation of pendingReservations) {
+        // ✅ Filtrar: solo reservas cuyo driver YA tenga supabaseId
+        const readyReservations = [];
+        for (const r of pendingReservations) {
+            const driver = await db.drivers.get(r.driverId);
+            const solinera = await db.solineras.get(r.solineraId);
+            if (driver?.supabaseId && solinera?.supabaseId) {
+                readyReservations.push(r);
+            } else {
+                log(`Reserva ${r.id} esperando driver/solinera sincronizada`);
+            }
+        }
+        for (const reservation of readyReservations) {
             const {
                 id,
                 syncStatus,
@@ -185,24 +250,34 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
 
             let result;
             if (supabaseId) {
-                result = await supabase
+                // Intentar UPDATE, si no existe el registro, hacer INSERT
+                const { data: checkExists } = await supabase
                     .from('charge_requests')
-                    .update(payload)
+                    .select('id')
                     .eq('id', supabaseId)
-                    .select()
-                    .single();
+                    .maybeSingle();
+
+                if (checkExists) {
+                    result = await supabase
+                        .from('charge_requests')
+                        .update(payload)
+                        .eq('id', supabaseId)
+                        .select()
+                        .single();
+                } else {
+                    // El registro remoto desapareció, hacer INSERT
+                    result = await supabase
+                        .from('charge_requests')
+                        .insert(payload)
+                        .select()
+                        .single();
+                }
             } else {
                 result = await supabase
                     .from('charge_requests')
                     .insert(payload)
                     .select()
                     .single();
-            }
-
-            if (result.error) {
-                console.error('[Sync] Error reserva:', result.error);
-                errors.push(`Reserva ${id}: ${result.error.message}`);
-                continue;
             }
 
             await db.reservations.update(id!, {
@@ -220,7 +295,7 @@ async function pushToSupabase(): Promise<{ count: number; errors: string[] }> {
     return { count: pushed, errors };
 }
 
-// ===== PULL: Traer cambios de Supabase a Dexie =====
+// ===== PULL =====
 
 async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> {
     const supabase = createClient();
@@ -228,28 +303,22 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
     const errors: string[] = [];
     let pulled = 0;
 
-    // Si NO hay usuario, no bajar nada
     if (!user) {
         return { count: 0, errors: [] };
     }
 
     const isBusiness = user.role === 'business';
 
-    // 1. Pull solineras
+    // 1. Pull solineras (todos ven todas para el mapa)
     try {
-        let query = supabase.from('solineras').select('*');
-
-        // Si es negocio, solo bajar SU solinera
-        if (isBusiness && user.email) {
-            query = query.eq('owner_email', user.email);
-        }
-
-        const { data: solineras, error: solinerasError } = await query;
+        const { data: solineras, error: solinerasError } = await supabase
+            .from('solineras')
+            .select('*');
 
         if (solinerasError) {
             errors.push(`Pull solineras: ${solinerasError.message}`);
         } else if (solineras) {
-            log(`Pull: ${solineras.length} solineras en Supabase (${isBusiness ? 'business' : 'driver'})`);
+            log(`Pull: ${solineras.length} solineras en Supabase (${user.role})`);
 
             for (const remote of solineras) {
                 const existingBySupabaseId = await db.solineras
@@ -258,9 +327,7 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                     .first();
 
                 if (existingBySupabaseId && existingBySupabaseId.id) {
-                    if (existingBySupabaseId.syncStatus === 'pending') {
-                        continue;
-                    }
+                    if (existingBySupabaseId.syncStatus === 'pending') continue;
 
                     await db.solineras.update(existingBySupabaseId.id, {
                         name: remote.name,
@@ -272,6 +339,12 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                         openingHours: remote.opening_hours,
                         closingHours: remote.closing_hours,
                         phone: remote.phone,
+                        supabaseUserId: remote.user_id,
+                        // Si es la solinera del usuario actual, asignar userId local
+                        userId:
+                            remote.user_id === user.supabaseId
+                                ? user.id
+                                : existingBySupabaseId.userId,
                         updatedAt: new Date(remote.updated_at).getTime(),
                         syncStatus: 'synced',
                     });
@@ -279,6 +352,8 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                 } else {
                     await db.solineras.add({
                         supabaseId: remote.id,
+                        supabaseUserId: remote.user_id,
+                        userId: remote.user_id === user.supabaseId ? user.id : undefined,
                         name: remote.name,
                         address: remote.address,
                         lat: remote.lat,
@@ -300,8 +375,9 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
         errors.push(`Exception pull solineras: ${err.message}`);
     }
 
-    // 2. Pull driver_profiles (solo si es business, para ver a sus clientes)
+    // 2. Pull driver_profiles
     if (isBusiness) {
+        // Business ve TODOS los drivers
         try {
             const { data: drivers, error: driversError } = await supabase
                 .from('driver_profiles')
@@ -311,6 +387,8 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                 errors.push(`Pull drivers: ${driversError.message}`);
             } else if (drivers) {
                 log(`Pull: ${drivers.length} drivers en Supabase`);
+
+                const localUserId = user.id;
 
                 for (const remote of drivers) {
                     const existing = await db.drivers
@@ -324,20 +402,47 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                         await db.drivers.update(existing.id, {
                             plate: remote.plate,
                             car: remote.car,
+                            supabaseUserId: remote.user_id,
+                            userId:
+                                remote.user_id === user.supabaseId
+                                    ? localUserId
+                                    : existing.userId,
                             syncStatus: 'synced',
                         });
                         pulled++;
                     } else {
-                        await db.drivers.add({
-                            supabaseId: remote.id,
-                            name: '',
-                            phone: '',
-                            plate: remote.plate,
-                            car: remote.car,
-                            createdAt: new Date(remote.updated_at).getTime(),
-                            syncStatus: 'synced',
-                        });
-                        pulled++;
+                        const existingByUserId = await db.drivers
+                            .where('supabaseUserId')
+                            .equals(remote.user_id)
+                            .first();
+
+                        if (existingByUserId && existingByUserId.id) {
+                            await db.drivers.update(existingByUserId.id, {
+                                supabaseId: remote.id,
+                                plate: remote.plate,
+                                car: remote.car,
+                                userId:
+                                    remote.user_id === user.supabaseId
+                                        ? localUserId
+                                        : existingByUserId.userId,
+                                syncStatus: 'synced',
+                            });
+                            pulled++;
+                        } else {
+                            await db.drivers.add({
+                                supabaseId: remote.id,
+                                supabaseUserId: remote.user_id,
+                                userId:
+                                    remote.user_id === user.supabaseId ? localUserId : undefined,
+                                name: '',
+                                phone: '',
+                                plate: remote.plate,
+                                car: remote.car,
+                                createdAt: new Date(remote.updated_at).getTime(),
+                                syncStatus: 'synced',
+                            });
+                            pulled++;
+                        }
                     }
                 }
             }
@@ -345,15 +450,81 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
             error('Error pulling drivers', err);
             errors.push(`Exception pull drivers: ${err.message}`);
         }
+    } else {
+        // Driver ve SOLO su propio driver
+        try {
+            const { data: drivers, error: driversError } = await supabase
+                .from('driver_profiles')
+                .select('*')
+                .eq('user_id', user.supabaseId);
+
+            if (driversError) {
+                errors.push(`Pull drivers: ${driversError.message}`);
+            } else if (drivers && drivers.length > 0) {
+                log(`Pull: ${drivers.length} driver(s) propio(s) en Supabase`);
+
+                const localUserId = user.id;
+
+                for (const remote of drivers) {
+                    const existing = await db.drivers
+                        .where('supabaseId')
+                        .equals(remote.id)
+                        .first();
+
+                    if (existing && existing.id) {
+                        if (existing.syncStatus === 'pending') continue;
+
+                        await db.drivers.update(existing.id, {
+                            plate: remote.plate,
+                            car: remote.car,
+                            supabaseUserId: remote.user_id,
+                            userId: localUserId,
+                            syncStatus: 'synced',
+                        });
+                        pulled++;
+                    } else {
+                        const existingByUserId = await db.drivers
+                            .where('supabaseUserId')
+                            .equals(remote.user_id)
+                            .first();
+
+                        if (existingByUserId && existingByUserId.id) {
+                            await db.drivers.update(existingByUserId.id, {
+                                supabaseId: remote.id,
+                                plate: remote.plate,
+                                car: remote.car,
+                                userId: localUserId,
+                                syncStatus: 'synced',
+                            });
+                            pulled++;
+                        } else {
+                            await db.drivers.add({
+                                supabaseId: remote.id,
+                                supabaseUserId: remote.user_id,
+                                userId: localUserId,
+                                name: '',
+                                phone: '',
+                                plate: remote.plate,
+                                car: remote.car,
+                                createdAt: new Date(remote.updated_at).getTime(),
+                                syncStatus: 'synced',
+                            });
+                            pulled++;
+                        }
+                    }
+                }
+            }
+        } catch (err: any) {
+            error('Error pulling driver propio', err);
+            errors.push(`Exception pull driver propio: ${err.message}`);
+        }
     }
 
     // 3. Pull charge_requests
     try {
         let query = supabase.from('charge_requests').select('*');
 
-        // Si es business, solo bajar reservas de SUS solineras
         if (isBusiness) {
-            // Primero obtenemos los supabaseId de las solineras del business
             const mySolineras = await db.solineras
                 .filter((s) => s.supabaseId != null && s.supabaseId !== '')
                 .toArray();
@@ -362,7 +533,6 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
             if (myIds.length > 0) {
                 query = query.in('solinera_id', myIds as any);
             } else {
-                // No tiene solineras aún, no bajar nada
                 return { count: pulled, errors };
             }
         }
@@ -411,6 +581,36 @@ async function pullFromSupabase(): Promise<{ count: number; errors: string[] }> 
                     await db.reservations.add(localData);
                 }
                 pulled++;
+            }
+
+            // ✅ Re-vincular reservas huérfanas (driverId = 0)
+            const orphanReservations = await db.reservations
+                .where('driverId')
+                .equals(0)
+                .toArray();
+
+            for (const orphan of orphanReservations) {
+                if (!orphan.supabaseId) continue;
+
+                const { data: remote } = await supabase
+                    .from('charge_requests')
+                    .select('driver_id')
+                    .eq('id', orphan.supabaseId)
+                    .single();
+
+                if (remote?.driver_id) {
+                    const driver = await db.drivers
+                        .where('supabaseId')
+                        .equals(remote.driver_id)
+                        .first();
+
+                    if (driver?.id && orphan.id) {
+                        await db.reservations.update(orphan.id, {
+                            driverId: driver.id,
+                        });
+                        log(`Reserva huérfana ${orphan.id} vinculada a driver ${driver.id}`);
+                    }
+                }
             }
         }
     } catch (err: any) {

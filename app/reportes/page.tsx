@@ -1,16 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { motion } from 'framer-motion';
 import {
-  BarChart3,
   TrendingUp,
   Download,
   DollarSign,
   Zap,
   Users,
-  Smartphone,
-  CreditCard,
   Calendar,
 } from 'lucide-react';
 import {
@@ -26,51 +22,154 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  Legend,
 } from 'recharts';
 import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, StatCard, SoliBadge } from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { cn } from '@/lib/utils';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, Reservation } from '@/lib/db';
 
-const dailyData = [
-  { day: 'Lun', ingresos: 2400, kwh: 128 },
-  { day: 'Mar', ingresos: 1800, kwh: 95 },
-  { day: 'Mié', ingresos: 3200, kwh: 165 },
-  { day: 'Jue', ingresos: 2800, kwh: 142 },
-  { day: 'Vie', ingresos: 4100, kwh: 210 },
-  { day: 'Sáb', ingresos: 5200, kwh: 268 },
-  { day: 'Dom', ingresos: 3800, kwh: 195 },
-];
-
-const weeklyData = [
-  { week: 'Sem 1', ingresos: 18000, kwh: 920 },
-  { week: 'Sem 2', ingresos: 22000, kwh: 1080 },
-  { week: 'Sem 3', ingresos: 19500, kwh: 980 },
-  { week: 'Sem 4', ingresos: 26500, kwh: 1320 },
-];
-
-const monthlyData = [
-  { month: 'May', ingresos: 68000, kwh: 3400 },
-  { month: 'Jun', ingresos: 72000, kwh: 3600 },
-  { month: 'Jul', ingresos: 85000, kwh: 4100 },
-  { month: 'Ago', ingresos: 79000, kwh: 3900 },
-  { month: 'Sep', ingresos: 92000, kwh: 4500 },
-  { month: 'Oct', ingresos: 61000, kwh: 2980 },
-];
-
-const paymentMethods = [
-  { name: 'Transfermóvil', value: 45, color: 'hsl(28 100% 50%)' },
-  { name: 'EnZona', value: 30, color: 'hsl(217 91% 60%)' },
-  { name: 'Efectivo', value: 15, color: 'hsl(160 84% 39%)' },
-  { name: 'Bandes', value: 10, color: 'hsl(45 100% 50%)' },
-];
+const tooltipStyle = {
+  background: 'hsl(var(--popover))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: '12px',
+  color: 'hsl(var(--foreground))',
+  fontSize: '12px',
+};
 
 const pieColors = ['hsl(28 100% 50%)', 'hsl(217 91% 60%)', 'hsl(160 84% 39%)', 'hsl(45 100% 50%)'];
 
 export default function ReportesPage() {
+  const reservations = useLiveQuery(
+    () => db.reservations.orderBy('createdAt').reverse().toArray(),
+    []
+  ) || [];
+
+  const transactions = useLiveQuery(
+    () => db.transactions.orderBy('createdAt').reverse().toArray(),
+    []
+  ) || [];
+
+  // ===== CÁLCULOS REALES =====
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayTs = today.getTime();
+
+  const weekAgo = todayTs - 7 * 24 * 60 * 60 * 1000;
+  const monthAgo = todayTs - 30 * 24 * 60 * 60 * 1000;
+
+  // Ingresos del mes (reservas completadas + transacciones)
+  const monthReservations = reservations.filter(
+    (r) => r.status === 'completed' && r.createdAt >= monthAgo
+  );
+  const monthTransactions = transactions.filter(
+    (t) => t.createdAt >= monthAgo
+  );
+
+  const monthRevenue =
+    monthReservations.reduce((sum, r) => sum + r.amount, 0) +
+    monthTransactions.reduce((sum, t) => sum + t.amount, 0);
+
+  const monthKwh = Math.round(monthRevenue / 5);
+
+  const monthClients = new Set([
+    ...monthReservations.map((r) => r.driverId),
+    ...monthTransactions.map((t) => t.queueItemId),
+  ]).size;
+
+  const avgTicket =
+    monthReservations.length + monthTransactions.length > 0
+      ? Math.round(
+        monthRevenue / (monthReservations.length + monthTransactions.length)
+      )
+      : 0;
+
+  // Datos por día (últimos 7 días)
+  const dailyData = React.useMemo(() => {
+    const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const dayMap: Record<string, { ingresos: number; kwh: number }> = {};
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dayName = days[d.getDay()];
+      dayMap[dayName] = { ingresos: 0, kwh: 0 };
+    }
+
+    reservations
+      .filter((r) => r.status === 'completed' && r.createdAt >= weekAgo)
+      .forEach((r) => {
+        const d = new Date(r.createdAt);
+        const dayName = days[d.getDay()];
+        if (dayMap[dayName]) {
+          dayMap[dayName].ingresos += r.amount;
+          dayMap[dayName].kwh += Math.round(r.amount / 5);
+        }
+      });
+
+    transactions
+      .filter((t) => t.createdAt >= weekAgo)
+      .forEach((t) => {
+        const d = new Date(t.createdAt);
+        const dayName = days[d.getDay()];
+        if (dayMap[dayName]) {
+          dayMap[dayName].ingresos += t.amount;
+          dayMap[dayName].kwh += Math.round(t.amount / 5);
+        }
+      });
+
+    return Object.entries(dayMap).map(([day, data]) => ({
+      day,
+      ...data,
+    }));
+  }, [reservations, transactions, weekAgo]);
+
+  // Métodos de pago
+  const paymentMethods = React.useMemo(() => {
+    const methods = { transfermovil: 0, enzona: 0 };
+    monthReservations.forEach((r) => {
+      if (r.method === 'transfermovil') methods.transfermovil += r.amount;
+      if (r.method === 'enzona') methods.enzona += r.amount;
+    });
+    const total = methods.transfermovil + methods.enzona || 1;
+    return [
+      {
+        name: 'Transfermóvil',
+        value: Math.round((methods.transfermovil / total) * 100),
+        amount: methods.transfermovil,
+      },
+      {
+        name: 'EnZona',
+        value: Math.round((methods.enzona / total) * 100),
+        amount: methods.enzona,
+      },
+    ];
+  }, [monthReservations]);
+
+  // Estados de las reservas
+  const statusData = React.useMemo(() => {
+    const pending = reservations.filter((r) => r.status === 'pending').length;
+    const confirmed = reservations.filter(
+      (r) => r.status === 'confirmed'
+    ).length;
+    const completed = reservations.filter(
+      (r) => r.status === 'completed'
+    ).length;
+    const cancelled = reservations.filter(
+      (r) => r.status === 'cancelled'
+    ).length;
+
+    return [
+      { name: 'Completadas', value: completed },
+      { name: 'Confirmadas', value: confirmed },
+      { name: 'Pendientes', value: pending },
+      { name: 'Canceladas', value: cancelled },
+    ].filter((s) => s.value > 0);
+  }, [reservations]);
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -86,53 +185,115 @@ export default function ReportesPage() {
 
         {/* Summary Stats */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Ingresos del mes" value="61,000" unit="CUP" icon={<DollarSign className="h-5 w-5" />} trend={{ value: '8%', positive: true }} gradient="solar" delay={0} />
-          <StatCard label="Energía vendida" value="2,980" unit="kWh" icon={<Zap className="h-5 w-5" />} trend={{ value: '5%', positive: false }} gradient="tech" delay={0.1} />
-          <StatCard label="Clientes únicos" value="187" icon={<Users className="h-5 w-5" />} trend={{ value: '22%', positive: true }} gradient="success" delay={0.2} />
-          <StatCard label="Ticket promedio" value="126" unit="CUP" icon={<TrendingUp className="h-5 w-5" />} trend={{ value: '3%', positive: true }} gradient="solar" delay={0.3} />
+          <StatCard
+            label="Ingresos del mes"
+            value={monthRevenue.toLocaleString()}
+            unit="CUP"
+            icon={<DollarSign className="h-5 w-5" />}
+            trend={{
+              value: monthRevenue > 0 ? 'Activo' : 'Sin datos',
+              positive: monthRevenue > 0,
+            }}
+            gradient="solar"
+            delay={0}
+          />
+          <StatCard
+            label="Energía vendida"
+            value={monthKwh.toLocaleString()}
+            unit="kWh"
+            icon={<Zap className="h-5 w-5" />}
+            trend={{ value: 'Mes actual', positive: true }}
+            gradient="tech"
+            delay={0.1}
+          />
+          <StatCard
+            label="Clientes únicos"
+            value={monthClients.toString()}
+            icon={<Users className="h-5 w-5" />}
+            trend={{ value: 'Mes actual', positive: true }}
+            gradient="success"
+            delay={0.2}
+          />
+          <StatCard
+            label="Ticket promedio"
+            value={avgTicket.toLocaleString()}
+            unit="CUP"
+            icon={<TrendingUp className="h-5 w-5" />}
+            trend={{ value: 'Mes actual', positive: true }}
+            gradient="solar"
+            delay={0.3}
+          />
         </div>
 
-        <Tabs defaultValue="daily">
-          <TabsList className="bg-card/40 backdrop-blur">
-            <TabsTrigger value="daily">Día</TabsTrigger>
-            <TabsTrigger value="weekly">Semana</TabsTrigger>
-            <TabsTrigger value="monthly">Mes</TabsTrigger>
-          </TabsList>
+        {/* Charts */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <FadeIn delay={0.1} className="lg:col-span-2">
+            <GlassCard className="p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold">
+                  Ingresos últimos 7 días
+                </h3>
+                <SoliBadge variant="solar">
+                  <Calendar className="h-3 w-3" /> Esta semana
+                </SoliBadge>
+              </div>
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={dailyData}>
+                  <defs>
+                    <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop
+                        offset="0%"
+                        stopColor="hsl(var(--primary))"
+                        stopOpacity={0.4}
+                      />
+                      <stop
+                        offset="100%"
+                        stopColor="hsl(var(--primary))"
+                        stopOpacity={0}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border))"
+                    opacity={0.3}
+                  />
+                  <XAxis
+                    dataKey="day"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Area
+                    type="monotone"
+                    dataKey="ingresos"
+                    stroke="hsl(var(--primary))"
+                    strokeWidth={2}
+                    fill="url(#incGrad)"
+                    name="Ingresos (CUP)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </GlassCard>
+          </FadeIn>
 
-          {/* Daily */}
-          <TabsContent value="daily" className="space-y-6">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <FadeIn delay={0.1} className="lg:col-span-2">
-                <GlassCard className="p-6">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Ingresos y energía por día</h3>
-                    <SoliBadge variant="solar">Última semana</SoliBadge>
-                  </div>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={dailyData}>
-                      <defs>
-                        <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="kwhGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="hsl(var(--chart-3))" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="hsl(var(--chart-3))" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                      <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                      <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                      <Tooltip contentStyle={tooltipStyle} />
-                      <Area type="monotone" dataKey="ingresos" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#incGrad)" name="Ingresos (CUP)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </GlassCard>
-              </FadeIn>
-
-              <FadeIn delay={0.2}>
-                <GlassCard className="p-6">
-                  <h3 className="mb-4 text-lg font-semibold">Métodos de pago</h3>
+          <FadeIn delay={0.2}>
+            <GlassCard className="p-6">
+              <h3 className="mb-4 text-lg font-semibold">Métodos de pago</h3>
+              {paymentMethods.every((m) => m.value === 0) ? (
+                <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                  Sin datos de pagos aún
+                </div>
+              ) : (
+                <>
                   <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
                       <Pie
@@ -153,86 +314,97 @@ export default function ReportesPage() {
                   </ResponsiveContainer>
                   <div className="space-y-2 pt-2">
                     {paymentMethods.map((m, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm">
+                      <div
+                        key={i}
+                        className="flex items-center justify-between text-sm"
+                      >
                         <div className="flex items-center gap-2">
-                          <div className="h-3 w-3 rounded-full" style={{ background: pieColors[i] }} />
+                          <div
+                            className="h-3 w-3 rounded-full"
+                            style={{ background: pieColors[i] }}
+                          />
                           <span>{m.name}</span>
                         </div>
                         <span className="font-medium">{m.value}%</span>
                       </div>
                     ))}
                   </div>
-                </GlassCard>
-              </FadeIn>
-            </div>
+                </>
+              )}
+            </GlassCard>
+          </FadeIn>
+        </div>
 
-            <FadeIn delay={0.3}>
-              <GlassCard className="p-6">
-                <h3 className="mb-4 text-lg font-semibold">Energía vendida por día (kWh)</h3>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={dailyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={tooltipStyle} />
-                    <Bar dataKey="kwh" fill="hsl(var(--chart-3))" radius={[8, 8, 0, 0]} name="kWh" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </GlassCard>
-            </FadeIn>
-          </TabsContent>
+        <FadeIn delay={0.3}>
+          <GlassCard className="p-6">
+            <h3 className="mb-4 text-lg font-semibold">
+              Energía vendida (kWh)
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={dailyData}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="hsl(var(--border))"
+                  opacity={0.3}
+                />
+                <XAxis
+                  dataKey="day"
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar
+                  dataKey="kwh"
+                  fill="hsl(var(--chart-3, 200 100% 50%))"
+                  radius={[8, 8, 0, 0]}
+                  name="kWh"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </GlassCard>
+        </FadeIn>
 
-          {/* Weekly */}
-          <TabsContent value="weekly" className="space-y-6">
-            <FadeIn delay={0.1}>
-              <GlassCard className="p-6">
-                <h3 className="mb-4 text-lg font-semibold">Ingresos semanales</h3>
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={weeklyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis dataKey="week" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={tooltipStyle} />
-                    <Bar dataKey="ingresos" fill="hsl(var(--primary))" radius={[8, 8, 0, 0]} name="Ingresos (CUP)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </GlassCard>
-            </FadeIn>
-          </TabsContent>
-
-          {/* Monthly */}
-          <TabsContent value="monthly" className="space-y-6">
-            <FadeIn delay={0.1}>
-              <GlassCard className="p-6">
-                <h3 className="mb-4 text-lg font-semibold">Tendencia mensual</h3>
-                <ResponsiveContainer width="100%" height={320}>
-                  <AreaChart data={monthlyData}>
-                    <defs>
-                      <linearGradient id="monthGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={tooltipStyle} />
-                    <Area type="monotone" dataKey="ingresos" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#monthGrad)" name="Ingresos (CUP)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </GlassCard>
-            </FadeIn>
-          </TabsContent>
-        </Tabs>
+        {/* Estado de reservas */}
+        <FadeIn delay={0.4}>
+          <GlassCard className="p-6">
+            <h3 className="mb-4 text-lg font-semibold">
+              Estado de reservas (total)
+            </h3>
+            {statusData.length === 0 ? (
+              <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                Aún no hay reservas
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {statusData.map((s, i) => (
+                  <div
+                    key={s.name}
+                    className="rounded-xl border border-border/50 bg-card/30 p-4 text-center"
+                  >
+                    <p
+                      className="text-3xl font-bold"
+                      style={{ color: pieColors[i % pieColors.length] }}
+                    >
+                      {s.value}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {s.name}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        </FadeIn>
       </div>
     </AppShell>
   );
 }
-
-const tooltipStyle = {
-  background: 'hsl(var(--popover))',
-  border: '1px solid hsl(var(--border))',
-  borderRadius: '12px',
-  color: 'hsl(var(--foreground))',
-  fontSize: '12px',
-};

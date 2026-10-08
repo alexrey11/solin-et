@@ -25,10 +25,17 @@ export default function LoginPage() {
 
         setSaving(true);
         try {
-            const user = await loginUser(email, password);
-            toast.success(`¡Hola, ${user.name}!`);
+            const result = await loginUser(email, password);
 
-            if (user.role === 'driver') {
+            if (!result.success || !result.user) {
+                toast.error(result.error || 'Credenciales incorrectas');
+                setSaving(false);
+                return;
+            }
+
+            toast.success(`¡Hola, ${result.user.name}!`);
+
+            if (result.user.role === 'driver') {
                 router.push('/mapa');
             } else {
                 router.push('/dashboard');

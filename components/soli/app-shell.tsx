@@ -49,7 +49,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [online, setOnline] = React.useState(true);
   const [user, setUser] = React.useState<User | null | undefined>(undefined);
 
-  // Cargar usuario
   React.useEffect(() => {
     const load = async () => {
       const u = await getCurrentUser();
@@ -62,7 +61,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     load();
   }, [router]);
 
-  // Online/offline
   React.useEffect(() => {
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);

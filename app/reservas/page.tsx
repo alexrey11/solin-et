@@ -13,6 +13,7 @@ import {
     MapPin,
     QrCode,
     Bell,
+    RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/soli/app-shell';
@@ -36,10 +37,12 @@ export default function ReservasPage() {
     const [refreshKey, setRefreshKey] = React.useState(0);
     const seenConfirmedRef = React.useRef<Set<number>>(new Set());
     const [expandedQR, setExpandedQR] = React.useState<number | null>(null);
+    const [waitingForDriver, setWaitingForDriver] = React.useState(false);
 
     // ===== CARGAR RESERVAS =====
     React.useEffect(() => {
         let mounted = true;
+
         const load = async () => {
             const user = await getCurrentUser();
             if (!user || user.role !== 'driver') {
@@ -49,15 +52,24 @@ export default function ReservasPage() {
 
             const d = await getDriverProfile(user.id!);
             if (!d || !d.id) {
-                if (mounted) setLoading(false);
+                // El driver aún no está. Esperar a que el sync lo baje.
+                if (mounted) {
+                    setWaitingForDriver(true);
+                    setTimeout(() => {
+                        if (mounted) setRefreshKey((k) => k + 1);
+                    }, 3000);
+                }
                 return;
             }
 
-            if (mounted) setDriver(d);
+            if (mounted) {
+                setDriver(d);
+                setWaitingForDriver(false);
+            }
 
             const res = await getReservationsByDriver(d.id);
+
             if (mounted) {
-                // Detectar nuevas reservas confirmadas para notificar
                 res.forEach((r) => {
                     if (
                         r.status === 'confirmed' &&
@@ -75,13 +87,14 @@ export default function ReservasPage() {
                 setLoading(false);
             }
         };
+
         load();
         return () => {
             mounted = false;
         };
     }, [refreshKey]);
 
-    // Refrescar cada 15s para ver cambios de estado
+    // Refrescar cada 15s
     React.useEffect(() => {
         if (!driver || !driver.id) return;
         const interval = setInterval(() => {
@@ -105,8 +118,16 @@ export default function ReservasPage() {
     if (loading) {
         return (
             <AppShell>
-                <div className="flex h-96 items-center justify-center text-muted-foreground">
-                    Cargando reservas...
+                <div className="flex h-96 flex-col items-center justify-center gap-4 text-muted-foreground">
+                    <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+                    <p>
+                        {waitingForDriver
+                            ? 'Sincronizando tu perfil...'
+                            : 'Cargando reservas...'}
+                    </p>
+                    {waitingForDriver && (
+                        <p className="text-xs">Esperando que llegue tu perfil desde el servidor</p>
+                    )}
                 </div>
             </AppShell>
         );
@@ -122,8 +143,11 @@ export default function ReservasPage() {
                             <Car className="h-8 w-8" />
                         </div>
                         <h2 className="text-xl font-bold">No tienes perfil de conductor</h2>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                            Ve a tu perfil para completarlo
+                        </p>
                         <Button className="mt-6 gradient-tech text-white" asChild>
-                            <Link href="/select-mode">Ir al inicio</Link>
+                            <Link href="/perfil">Ir a mi perfil</Link>
                         </Button>
                     </GlassCard>
                 </div>
@@ -137,9 +161,18 @@ export default function ReservasPage() {
                 <PageHeader
                     title="Mis Reservas"
                     subtitle="Aquí verás el estado de tus solicitudes de carga"
+                    action={
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setRefreshKey((k) => k + 1)}
+                        >
+                            <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
+                        </Button>
+                    }
                 />
 
-                {/* ===== RESERVAS CONFIRMADAS (¡VEN AQUÍ!) ===== */}
+                {/* ===== RESERVAS CONFIRMADAS ===== */}
                 {confirmed.length > 0 && (
                     <FadeIn delay={0.05}>
                         <div className="space-y-4">
@@ -150,7 +183,6 @@ export default function ReservasPage() {
                                     animate={{ opacity: 1, scale: 1 }}
                                 >
                                     <GlassCard className="overflow-hidden border-success/40 bg-success/5 p-0">
-                                        {/* Alerta superior */}
                                         <div className="bg-success/20 px-6 py-4">
                                             <div className="flex items-center gap-3">
                                                 <motion.div
@@ -172,7 +204,6 @@ export default function ReservasPage() {
                                         </div>
 
                                         <div className="p-6">
-                                            {/* Detalles */}
                                             <div className="mb-4 space-y-3">
                                                 <div className="flex items-center justify-between">
                                                     <span className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -198,7 +229,6 @@ export default function ReservasPage() {
                                                 </div>
                                             </div>
 
-                                            {/* Aviso importante */}
                                             <div className="mb-4 flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4">
                                                 <AlertTriangle className="h-5 w-5 flex-shrink-0 text-warning" />
                                                 <div>
@@ -213,7 +243,6 @@ export default function ReservasPage() {
                                                 </div>
                                             </div>
 
-                                            {/* QR Code + Código corto */}
                                             {expandedQR === r.id ? (
                                                 <motion.div
                                                     initial={{ opacity: 0, height: 0 }}
@@ -243,7 +272,6 @@ export default function ReservasPage() {
                                                         </p>
                                                     </div>
 
-                                                    {/* Código corto en grande */}
                                                     <div className="mt-4 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 text-center">
                                                         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                                             Código de reserva
@@ -336,7 +364,7 @@ export default function ReservasPage() {
                     </FadeIn>
                 )}
 
-                {/* ===== SIN RESERVAS ACTIVAS ===== */}
+                {/* ===== SIN RESERVAS ===== */}
                 {pending.length === 0 && confirmed.length === 0 && (
                     <FadeIn delay={0.15}>
                         <GlassCard className="p-12 text-center">

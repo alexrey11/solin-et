@@ -1,27 +1,86 @@
+import { createClient } from '@/lib/supabase/client';
 import { db, Driver, Solinera, Reservation } from './db';
+
+// ===== HELPER: OBTENER supabaseUserId =====
+
+async function getSupabaseUserId(): Promise<string | null> {
+    const supabase = createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+    return user?.id || null;
+}
 
 // ===== DRIVER PROFILE =====
 
 export async function getDriverProfile(userId: number): Promise<Driver | null> {
-    const driver = await db.drivers.where('userId').equals(userId).first();
-    return driver || null;
+    // 1. Buscar por userId local
+    let driver = await db.drivers.where('userId').equals(userId).first();
+    if (driver) return driver;
+
+    // 2. Buscar por supabaseUserId
+    const supabaseUserId = await getSupabaseUserId();
+    if (supabaseUserId) {
+        driver = await db.drivers
+            .where('supabaseUserId')
+            .equals(supabaseUserId)
+            .first();
+        if (driver) {
+            // Asignar userId local para futuras búsquedas
+            if (driver.id && !driver.userId) {
+                await db.drivers.update(driver.id, { userId });
+                driver.userId = userId;
+            }
+            return driver;
+        }
+    }
+
+    return null;
 }
 
 export async function saveDriverProfile(
     userId: number,
     data: Partial<Driver>
 ): Promise<number> {
-    const existing = await getDriverProfile(userId);
+    const supabaseUserId = await getSupabaseUserId();
+
+    // 1. Buscar por userId local
+    let existing = await db.drivers.where('userId').equals(userId).first();
+
+    // 2. Buscar por supabaseUserId
+    if (!existing && supabaseUserId) {
+        existing = await db.drivers
+            .where('supabaseUserId')
+            .equals(supabaseUserId)
+            .first();
+    }
+
+    // 3. Buscar por supabaseId remoto
+    if (!existing && supabaseUserId) {
+        const supa = createClient();
+        const { data } = await supa
+            .from('driver_profiles')
+            .select('id')
+            .eq('user_id', supabaseUserId)
+            .maybeSingle();
+
+        if (data?.id) {
+            existing = await db.drivers.where('supabaseId').equals(data.id).first();
+        }
+    }
 
     if (existing && existing.id) {
         await db.drivers.update(existing.id, {
             ...data,
+            userId,
+            supabaseUserId: supabaseUserId || existing.supabaseUserId,
             syncStatus: 'pending',
         });
         return existing.id;
     } else {
         return await db.drivers.add({
             userId,
+            supabaseUserId: supabaseUserId || undefined,
             name: data.name || '',
             phone: data.phone || '',
             plate: data.plate || '',
@@ -37,19 +96,65 @@ export async function saveDriverProfile(
 export async function getBusinessProfile(
     userId: number
 ): Promise<Solinera | null> {
-    const solinera = await db.solineras.where('userId').equals(userId).first();
-    return solinera || null;
+    // 1. Buscar por userId local
+    let solinera = await db.solineras.where('userId').equals(userId).first();
+    if (solinera) return solinera;
+
+    // 2. Buscar por supabaseUserId
+    const supabaseUserId = await getSupabaseUserId();
+    if (supabaseUserId) {
+        solinera = await db.solineras
+            .where('supabaseUserId')
+            .equals(supabaseUserId)
+            .first();
+        if (solinera) {
+            if (solinera.id && !solinera.userId) {
+                await db.solineras.update(solinera.id, { userId });
+                solinera.userId = userId;
+            }
+            return solinera;
+        }
+    }
+
+    return null;
 }
 
 export async function saveBusinessProfile(
     userId: number,
     data: Partial<Solinera>
 ): Promise<number> {
-    const existing = await getBusinessProfile(userId);
+    const supabaseUserId = await getSupabaseUserId();
+
+    let existing = await db.solineras.where('userId').equals(userId).first();
+
+    if (!existing && supabaseUserId) {
+        existing = await db.solineras
+            .where('supabaseUserId')
+            .equals(supabaseUserId)
+            .first();
+    }
+
+    if (!existing && supabaseUserId) {
+        const supa = createClient();
+        const { data: supaData } = await supa
+            .from('solineras')
+            .select('id')
+            .eq('user_id', supabaseUserId)
+            .maybeSingle();
+
+        if (supaData?.id) {
+            existing = await db.solineras
+                .where('supabaseId')
+                .equals(supaData.id)
+                .first();
+        }
+    }
 
     if (existing && existing.id) {
         await db.solineras.update(existing.id, {
             ...data,
+            userId,
+            supabaseUserId: supabaseUserId || existing.supabaseUserId,
             syncStatus: 'pending',
             updatedAt: Date.now(),
         });
@@ -57,6 +162,7 @@ export async function saveBusinessProfile(
     } else {
         return await db.solineras.add({
             userId,
+            supabaseUserId: supabaseUserId || undefined,
             name: data.name || 'Mi Solinera',
             address: data.address || 'Sin dirección',
             lat: data.lat || 23.1136,
@@ -75,8 +181,6 @@ export async function saveBusinessProfile(
 
 // ===== RESERVATIONS =====
 
-// Genera un código corto único, fácil de leer
-// Sin caracteres ambiguos: sin O, 0, I, 1, L
 function generateShortCode(): string {
     const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     let code = '';
@@ -92,7 +196,6 @@ export async function createReservation(
         'id' | 'createdAt' | 'status' | 'syncStatus' | 'shortCode'
     >
 ): Promise<number> {
-    // Generar código único (reintentar si ya existe)
     let shortCode = generateShortCode();
     let attempts = 0;
     while (attempts < 10) {
@@ -117,7 +220,10 @@ export async function createReservation(
 export async function getReservationsByDriver(
     driverId: number
 ): Promise<Reservation[]> {
-    const list = await db.reservations.where('driverId').equals(driverId).toArray();
+    const list = await db.reservations
+        .where('driverId')
+        .equals(driverId)
+        .toArray();
     return list.sort((a, b) => b.createdAt - a.createdAt);
 }
 

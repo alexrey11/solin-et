@@ -4,16 +4,7 @@ import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import {
-    Sun,
-    Car,
-    Zap,
-    ArrowRight,
-    Mail,
-    Lock,
-    User,
-    Phone,
-} from 'lucide-react';
+import { Sun, Car, Zap, ArrowRight, Mail, Lock, User, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,7 +17,8 @@ import { cn } from '@/lib/utils';
 export default function RegisterPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const initialRole = (searchParams.get('role') as 'driver' | 'business') || 'driver';
+    const initialRole =
+        (searchParams.get('role') as 'driver' | 'business') || 'driver';
 
     const [role, setRole] = React.useState<'driver' | 'business'>(initialRole);
     const [name, setName] = React.useState('');
@@ -37,16 +29,17 @@ export default function RegisterPage() {
     const [saving, setSaving] = React.useState(false);
 
     const handleRegister = async () => {
-        // Validaciones
         if (!name.trim()) return toast.error('Escribe tu nombre');
         if (!email.trim() || !email.includes('@'))
             return toast.error('Correo inválido');
-        if (password.length < 4) return toast.error('Contraseña muy corta (mín. 4)');
-        if (password !== password2) return toast.error('Las contraseñas no coinciden');
+        if (password.length < 6)
+            return toast.error('Contraseña muy corta (mín. 6)');
+        if (password !== password2)
+            return toast.error('Las contraseñas no coinciden');
 
         setSaving(true);
         try {
-            const user = await registerUser({
+            const result = await registerUser({
                 role,
                 name,
                 email,
@@ -54,26 +47,32 @@ export default function RegisterPage() {
                 password,
             });
 
+            if (!result.success || !result.user) {
+                toast.error(result.error || 'Error al registrar');
+                setSaving(false);
+                return;
+            }
+
             // Crear perfil asociado
             if (role === 'driver') {
-                await saveDriverProfile(user.id!, {
+                await saveDriverProfile(result.user.id!, {
                     name,
                     phone,
                     plate: '',
                     car: 'Triciclo Eléctrico',
                 });
+                toast.success('¡Cuenta creada!');
                 router.push('/mapa');
             } else {
-                await saveBusinessProfile(user.id!, {
-                    name: `${name}`,
+                await saveBusinessProfile(result.user.id!, {
+                    name,
                     owner: name,
                     email,
                     address: '',
                 });
+                toast.success('¡Cuenta creada!');
                 router.push('/onboarding');
             }
-
-            toast.success('¡Cuenta creada!');
         } catch (err: any) {
             console.error(err);
             toast.error(err.message || 'Error al registrar');
@@ -113,7 +112,6 @@ export default function RegisterPage() {
                     </p>
                 </motion.div>
 
-                {/* Selector de rol */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -189,7 +187,7 @@ export default function RegisterPage() {
                                 </Label>
                                 <Input
                                     type="password"
-                                    placeholder="Mínimo 4 caracteres"
+                                    placeholder="Mínimo 6 caracteres"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                 />

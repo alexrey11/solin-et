@@ -34,7 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, seedIfEmpty, QueueItem, Reservation } from '@/lib/db';
+import { db, QueueItem, Reservation } from '@/lib/db';
 import { toast } from 'sonner';
 
 // Puntos de carga
@@ -63,9 +63,6 @@ export default function ColaPage() {
     []
   ) || [];
 
-  React.useEffect(() => {
-    seedIfEmpty();
-  }, []);
 
   // ===== ESTADOS DE UI =====
   const [collectOpen, setCollectOpen] = React.useState(false);
@@ -392,14 +389,14 @@ export default function ColaPage() {
                 <div
                   key={cp.id}
                   className={`flex items-center gap-2 rounded-xl border p-3 ${cp.active
-                      ? 'border-success/30 bg-success/5'
-                      : 'border-border/50 bg-card/30'
+                    ? 'border-success/30 bg-success/5'
+                    : 'border-border/50 bg-card/30'
                     }`}
                 >
                   <div
                     className={`flex h-8 w-8 items-center justify-center rounded-lg ${cp.active
-                        ? 'bg-success/15 text-success'
-                        : 'bg-muted text-muted-foreground'
+                      ? 'bg-success/15 text-success'
+                      : 'bg-muted text-muted-foreground'
                       }`}
                   >
                     <Zap className="h-4 w-4" />

@@ -12,6 +12,7 @@ import {
     Zap,
     DollarSign,
     Keyboard,
+    RefreshCw,
 } from 'lucide-react';
 import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, SoliBadge } from '@/components/soli/glass-card';
@@ -43,15 +44,17 @@ export default function EscanearPage() {
     const [scannerReady, setScannerReady] = React.useState(false);
     const [scannerActive, setScannerActive] = React.useState(false);
     const [scanned, setScanned] = React.useState<ReservationData | null>(null);
-    const [matchedReservation, setMatchedReservation] = React.useState<Reservation | null>(null);
+    const [matchedReservation, setMatchedReservation] =
+        React.useState<Reservation | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [processing, setProcessing] = React.useState(false);
     const [manualMode, setManualMode] = React.useState(false);
     const [shortCode, setShortCode] = React.useState('');
     const [checkingAccess, setCheckingAccess] = React.useState(true);
+    const [resetKey, setResetKey] = React.useState(0);
 
     const scannerRef = React.useRef<any>(null);
-    const scannerId = 'qr-scanner-region';
+    const scannerId = `qr-scanner-region-${resetKey}`;
 
     // ===== VERIFICAR ROL =====
     React.useEffect(() => {
@@ -76,6 +79,7 @@ export default function EscanearPage() {
         if (checkingAccess) return;
         if (manualMode) return;
         if (scanned || matchedReservation) return;
+        if (error) return;
 
         let mounted = true;
         let scanner: any = null;
@@ -108,11 +112,19 @@ export default function EscanearPage() {
             } catch (err: any) {
                 console.error('Error iniciando cámara:', err);
                 if (mounted) {
+                    // Si falla la cámara, pasar directo a modo manual
                     setError(
-                        'No se pudo acceder a la cámara. Usa el código corto.'
+                        'No se pudo acceder a la cámara. Usa el código de reserva.'
                     );
                     setScannerReady(true);
                     setScannerActive(false);
+                    // Auto-switch a modo manual después de 1s
+                    setTimeout(() => {
+                        if (mounted) {
+                            setManualMode(true);
+                            setError(null);
+                        }
+                    }, 1200);
                 }
             }
         };
@@ -128,7 +140,7 @@ export default function EscanearPage() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [checkingAccess, manualMode, scanned, matchedReservation]);
+    }, [checkingAccess, manualMode, scanned, matchedReservation, resetKey, error]);
 
     // ===== PROCESAR QR =====
     const handleScanQR = async (text: string) => {
@@ -139,7 +151,6 @@ export default function EscanearPage() {
                 return;
             }
 
-            // Buscar reserva confirmada por slot + solinera + monto
             const confirmed = await db.reservations
                 .filter(
                     (r) =>
@@ -150,9 +161,7 @@ export default function EscanearPage() {
                 .first();
 
             if (!confirmed) {
-                setError(
-                    'Esta reserva no está confirmada o ya fue procesada.'
-                );
+                setError('Esta reserva no está confirmada o ya fue procesada.');
                 return;
             }
 
@@ -190,7 +199,6 @@ export default function EscanearPage() {
                 return;
             }
 
-            // Obtener info del driver
             const driver = await db.drivers.get(reservation.driverId);
 
             setScanned({
@@ -220,7 +228,6 @@ export default function EscanearPage() {
         setProcessing(true);
 
         try {
-            // Marcar reserva como completada
             if (matchedReservation.id) {
                 await db.reservations.update(matchedReservation.id, {
                     status: 'completed',
@@ -228,7 +235,6 @@ export default function EscanearPage() {
                 });
             }
 
-            // Añadir a la cola
             await db.queue.add({
                 name: scanned.driverName || 'Conductor',
                 car: scanned.car || 'Vehículo Eléctrico',
@@ -250,13 +256,23 @@ export default function EscanearPage() {
         }
     };
 
+    // ===== RESET LIMPIO (SIN RECARGAR) =====
     const handleReset = () => {
+        // Detener scanner si está activo
+        if (scannerRef.current && scannerActive) {
+            try {
+                scannerRef.current.stop().catch(() => { });
+            } catch (e) { }
+        }
         setScanned(null);
         setMatchedReservation(null);
         setError(null);
-        setManualMode(false);
         setShortCode('');
-        window.location.reload();
+        setScannerReady(false);
+        setScannerActive(false);
+        setManualMode(false);
+        // Forzar reinicialización del scanner
+        setResetKey((k) => k + 1);
     };
 
     if (checkingAccess) {
@@ -276,24 +292,32 @@ export default function EscanearPage() {
                     title="Dar entrada"
                     subtitle="Escanea el QR o escribe el código del conductor"
                     action={
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                                setManualMode(!manualMode);
-                                setError(null);
-                            }}
-                        >
-                            {manualMode ? (
-                                <>
-                                    <Camera className="mr-2 h-4 w-4" /> Usar cámara
-                                </>
-                            ) : (
-                                <>
-                                    <Keyboard className="mr-2 h-4 w-4" /> Usar código
-                                </>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    setManualMode(!manualMode);
+                                    setError(null);
+                                    setShortCode('');
+                                }}
+                            >
+                                {manualMode ? (
+                                    <>
+                                        <Camera className="mr-2 h-4 w-4" /> Usar cámara
+                                    </>
+                                ) : (
+                                    <>
+                                        <Keyboard className="mr-2 h-4 w-4" /> Usar código
+                                    </>
+                                )}
+                            </Button>
+                            {(scanned || error) && (
+                                <Button variant="ghost" size="sm" onClick={handleReset}>
+                                    <RefreshCw className="mr-2 h-4 w-4" /> Reiniciar
+                                </Button>
                             )}
-                        </Button>
+                        </div>
                     }
                 />
 
@@ -323,7 +347,7 @@ export default function EscanearPage() {
                                         onKeyDown={(e) =>
                                             e.key === 'Enter' && handleManualSubmit()
                                         }
-                                        className="text-center font-mono text-2xl tracking-[0.3em] uppercase"
+                                        className="text-center font-mono text-2xl uppercase tracking-[0.3em]"
                                         maxLength={6}
                                         autoFocus
                                     />
@@ -370,20 +394,23 @@ export default function EscanearPage() {
                                     {error}
                                 </p>
                                 <div className="mt-6 flex flex-wrap justify-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => router.push('/cola')}
-                                    >
+                                    <Button variant="outline" onClick={() => router.push('/cola')}>
                                         Volver a la cola
                                     </Button>
                                     <Button
-                                        className="gradient-solar text-white"
+                                        variant="outline"
                                         onClick={() => {
                                             setError(null);
-                                            setShortCode('');
+                                            setManualMode(true);
                                         }}
                                     >
-                                        Intentar de nuevo
+                                        <Keyboard className="mr-2 h-4 w-4" /> Modo código
+                                    </Button>
+                                    <Button
+                                        className="gradient-solar text-white"
+                                        onClick={handleReset}
+                                    >
+                                        <RefreshCw className="mr-2 h-4 w-4" /> Reintentar
                                     </Button>
                                 </div>
                             </div>
