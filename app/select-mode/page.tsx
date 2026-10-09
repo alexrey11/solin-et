@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { getCurrentUser } from '@/lib/auth';
 import Image from 'next/image';
 
+
 export default function SelectModePage() {
     const router = useRouter();
     const [checking, setChecking] = React.useState(true);
