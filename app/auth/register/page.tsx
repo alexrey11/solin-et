@@ -13,7 +13,7 @@ import { registerUser } from '@/lib/auth';
 import { saveDriverProfile, saveBusinessProfile } from '@/lib/profile';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-
+import Image from 'next/image';
 export default function RegisterPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -26,6 +26,7 @@ export default function RegisterPage() {
     const [phone, setPhone] = React.useState('');
     const [password, setPassword] = React.useState('');
     const [password2, setPassword2] = React.useState('');
+
     const [saving, setSaving] = React.useState(false);
 
     const handleRegister = async () => {
@@ -94,9 +95,16 @@ export default function RegisterPage() {
                     transition={{ type: 'spring', damping: 12 }}
                     className="mb-6 flex items-center gap-3"
                 >
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl gradient-solar shadow-glow-orange">
-                        <Sun className="h-7 w-7 text-white" />
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-glow-orange">
+                        <Image
+                            src="/logo.png"
+                            alt="SoliNet"
+                            width={64}
+                            height={64}
+                            className="h-full w-full object-contain"
+                        />
                     </div>
+
                     <span className="text-2xl font-bold tracking-tight">SoliNet</span>
                 </motion.div>
 

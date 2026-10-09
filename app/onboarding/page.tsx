@@ -21,6 +21,7 @@ import { GlassCard } from '@/components/soli/glass-card';
 import { cn } from '@/lib/utils';
 import { getCurrentUser } from '@/lib/auth';
 import { saveBusinessProfile } from '@/lib/profile';
+import Image from 'next/image';
 import { toast } from 'sonner';
 
 const steps = [
@@ -89,8 +90,14 @@ export default function OnboardingPage() {
 
       <div className="relative mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-8 sm:px-6">
         <div className="mb-8 flex items-center justify-center gap-2.5">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl gradient-solar shadow-glow-orange">
-            <Sun className="h-7 w-7 text-white" />
+          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-glow-orange">
+            <Image
+              src="/logo.png"
+              alt="SoliNet"
+              width={64}
+              height={64}
+              className="h-full w-full object-contain"
+            />
           </div>
           <span className="text-2xl font-bold tracking-tight">SoliNet</span>
         </div>

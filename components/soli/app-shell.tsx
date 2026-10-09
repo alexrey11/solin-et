@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import {
   LayoutDashboard,
   Users,
@@ -83,8 +84,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl gradient-solar shadow-glow-orange">
-            <Sun className="h-9 w-9 text-white" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl overflow-hidden bg-white shadow-glow-orange">
+            <Image
+              src="/logo.png"
+              alt="SoliNet"
+              width={64}
+              height={64}
+              className="h-full w-full object-contain"
+            />
           </div>
           <p className="text-sm text-muted-foreground">Cargando...</p>
         </div>
@@ -160,9 +167,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Menu className="h-5 w-5" />
             </button>
             <Link href="/" className="flex items-center gap-2 lg:hidden">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-solar">
-                <Sun className="h-5 w-5 text-white" />
-              </div>
+              <Image
+                src="/logo.png"
+                alt="SoliNet"
+                width={32}
+                height={32}
+                className="h-8 w-8 object-contain"
+              />
               <span className="font-bold">SoliNet</span>
             </Link>
             <div className="hidden items-center gap-3 lg:flex">
@@ -207,11 +218,17 @@ function SidebarContent({
     <>
       <Link
         href="/"
-        className="flex items-center gap-2.5 px-6 py-5"
+        className="flex items-center gap-3 px-6 py-5"
         onClick={onNavigate}
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-solar shadow-glow-orange">
-          <Sun className="h-6 w-6 text-white" />
+        <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-white shadow-glow-orange">
+          <Image
+            src="/logo.png"
+            alt="SoliNet"
+            width={44}
+            height={44}
+            className="h-full w-full object-contain"
+          />
         </div>
         <div>
           <span className="text-lg font-bold tracking-tight">SoliNet</span>

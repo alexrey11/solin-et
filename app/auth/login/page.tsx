@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { GlassCard } from '@/components/soli/glass-card';
 import { loginUser } from '@/lib/auth';
 import { toast } from 'sonner';
+import Image from 'next/image';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -61,8 +62,14 @@ export default function LoginPage() {
                     transition={{ type: 'spring', damping: 12 }}
                     className="mb-6 flex items-center gap-3"
                 >
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl gradient-solar shadow-glow-orange">
-                        <Sun className="h-7 w-7 text-white" />
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-glow-orange">
+                        <Image
+                            src="/logo.png"
+                            alt="SoliNet"
+                            width={64}
+                            height={64}
+                            className="h-full w-full object-contain"
+                        />
                     </div>
                     <span className="text-2xl font-bold tracking-tight">SoliNet</span>
                 </motion.div>
