@@ -4,6 +4,12 @@ on:
   push:
     branches: [ feature/offline-first ]
   workflow_dispatch:
+name: Build Native APK with Capacitor
+
+on:
+  push:
+    branches: [ feature/offline-first ]
+  workflow_dispatch:
 
 jobs:
   build-apk:
@@ -29,6 +35,9 @@ jobs:
       run: npm ci
 
     - name: Build Next.js static export
+      env:
+        NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
       run: npm run build
 
     - name: Sync Capacitor
