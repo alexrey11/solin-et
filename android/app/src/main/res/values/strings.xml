@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SoliNet</string>
+    <string name="title_activity_main">SoliNet</string>
+    <string name="package_name">cu.solinet.app</string>
+    <string name="custom_url_scheme">cu.solinet.app</string>
+</resources>
