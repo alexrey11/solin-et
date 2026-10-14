@@ -2,23 +2,27 @@
 
 import * as React from 'react';
 import { motion } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import {
   MapPin,
   Zap,
   Star,
   Filter,
   Search,
-  Navigation,
-  Sun,
-  Battery,
   Check,
   Calendar,
   Smartphone,
   CreditCard,
+  Share2,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/soli/app-shell';
-import { GlassCard, SoliBadge, StatusIndicator } from '@/components/soli/glass-card';
+import {
+  GlassCard,
+  SoliBadge,
+  StatusIndicator,
+} from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,99 +35,123 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Solinera, Driver } from '@/lib/db';
-import { createReservation, getDriverProfile } from '@/lib/profile';
-import { getCurrentUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
+import { useAllSolineras, SolineraRemote } from '@/lib/queries/solinera';
+import {
+  useCreateReservation,
+  useMyReservations,
+} from '@/lib/queries/reservas';
+import { createClient } from '@/lib/supabase/client';
+
+const RealMapDynamic = dynamic(
+  () => import('@/components/soli/real-map').then((m) => m.RealMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center rounded-2xl bg-card/30">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+);
 
 export default function MapaPage() {
-  const solineras = useLiveQuery(() => db.solineras.toArray(), []) || [];
+  const { data: solineras = [], isLoading } = useAllSolineras();
+  const createReservation = useCreateReservation();
 
-  const [selected, setSelected] = React.useState<Solinera | null>(null);
+  const [selected, setSelected] = React.useState<SolineraRemote | null>(null);
   const [reserveOpen, setReserveOpen] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [selectedSlot, setSelectedSlot] = React.useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = React.useState<
     'transfermovil' | 'enzona' | null
   >(null);
-  const [driver, setDriver] = React.useState<Driver | null>(null);
+  const [driverProfile, setDriverProfile] = React.useState<any>(null);
+  const [lastReservation, setLastReservation] = React.useState<any>(null);
 
+  // Cargar driver profile
   React.useEffect(() => {
-    const load = async () => {
-      const user = await getCurrentUser();
-      if (user && user.id) {
-        const d = await getDriverProfile(user.id);
-        setDriver(d);
-      }
+    const loadDriver = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('driver_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      setDriverProfile(data);
     };
-    load();
+    loadDriver();
   }, []);
 
-  const openReserve = (s: Solinera) => {
+  const openReserve = (s: SolineraRemote) => {
     setSelected(s);
     setReserveOpen(true);
+  };
+
+  const shareSolinera = (s: SolineraRemote) => {
+    const text = `⚡ Mira esta solinera: ${s.name} - ${s.address}. Reserva tu carga en SoliNet: https://www.solinet.de5.net/mapa`;
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
   };
 
   const confirmReserve = async () => {
     if (!selected || !selectedSlot || !paymentMethod) return;
 
     try {
-      const user = await getCurrentUser();
-      if (!user || user.role !== 'driver') {
-        toast.error('Debes iniciar sesión como conductor');
-        return;
-      }
-
-      const d = await getDriverProfile(user.id!);
-      if (!d || !d.id) {
-        toast.error('Completa tu perfil primero');
-        return;
-      }
-
-      await createReservation({
-        driverId: d.id,
-        solineraId: selected.id || 0,
-        solineraName: selected.name,
+      const reservation = await createReservation.mutateAsync({
+        solineraId: selected.id,
         slot: selectedSlot,
-        amount: 20 * (selected.pricePerKwh || 5),
+        amount: 20 * (selected.price_per_kwh || 5),
         method: paymentMethod,
       });
 
+      setLastReservation({
+        ...reservation,
+        solineraName: selected.name,
+      });
       toast.success(`Reserva confirmada con ${paymentMethod}`);
       setReserveOpen(false);
       setConfirmOpen(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Error al crear la reserva');
+      toast.error(err.message || 'Error al reservar');
     }
   };
 
   const slots = [
-    '09:00',
-    '09:30',
-    '10:00',
-    '10:30',
-    '11:00',
-    '11:30',
-    '14:00',
-    '14:30',
-    '15:00',
+    '8:00 AM',
+    '9:00 AM',
+    '9:30 AM',
+    '10:00 AM',
+    '11:00 AM',
+    '12:00 PM',
+    '2:00 PM',
+    '3:00 PM',
+    '4:00 PM',
+    '5:00 PM',
   ];
 
-  const positions = [
-    { x: 35, y: 30 },
-    { x: 20, y: 45 },
-    { x: 55, y: 55 },
-    { x: 40, y: 68 },
-    { x: 12, y: 25 },
-    { x: 70, y: 40 },
-    { x: 25, y: 60 },
-    { x: 65, y: 70 },
-    { x: 45, y: 20 },
-    { x: 80, y: 55 },
-  ];
+  const validSolineras = solineras.filter(
+    (s) => s.lat != null && s.lng != null
+  );
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="flex h-96 flex-col items-center justify-center gap-4 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p>Cargando solineras...</p>
+        </div>
+      </AppShell>
+    );
+  }
 
   if (solineras.length === 0) {
     return (
@@ -139,7 +167,7 @@ export default function MapaPage() {
             </div>
             <h2 className="text-xl font-bold">No hay solineras aún</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Aún no hay solineras registradas en el sistema. Vuelve más tarde.
+              Aún no hay solineras registradas. Vuelve más tarde.
             </p>
           </GlassCard>
         </div>
@@ -184,122 +212,28 @@ export default function MapaPage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           <FadeIn delay={0.2} className="lg:col-span-3">
             <GlassCard className="relative overflow-hidden p-0">
-              <div
-                className="relative h-[400px] w-full overflow-hidden rounded-2xl sm:h-[520px]"
-                style={{
-                  background:
-                    'linear-gradient(135deg, hsl(222 47% 8%) 0%, hsl(222 40% 12%) 100%)',
-                }}
-              >
-                <div
-                  className="absolute inset-0 opacity-20"
-                  style={{
-                    backgroundImage: `
-                      linear-gradient(hsl(var(--border)) 1px, transparent 1px),
-                      linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)
-                    `,
-                    backgroundSize: '40px 40px',
+              <div className="relative h-[400px] w-full overflow-hidden rounded-2xl sm:h-[520px]">
+                <RealMapDynamic
+                  solineras={validSolineras.map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    address: s.address,
+                    lat: s.lat,
+                    lng: s.lng,
+                    pricePerKwh: s.price_per_kwh,
+                    points: s.points,
+                  }))}
+                  selectedId={selected?.id}
+                  onSelect={(s) => {
+                    const full = solineras.find((x) => x.id === s.id);
+                    if (full) setSelected(full);
                   }}
+                  onReserve={(s) => {
+                    const full = solineras.find((x) => x.id === s.id);
+                    if (full) openReserve(full);
+                  }}
+                  showDownloadControl={true}
                 />
-
-                <svg
-                  className="absolute inset-0 h-full w-full opacity-30"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M 0 200 Q 200 180 400 220 T 800 200"
-                    stroke="hsl(var(--muted-foreground))"
-                    strokeWidth="3"
-                    fill="none"
-                  />
-                  <path
-                    d="M 150 0 L 180 400"
-                    stroke="hsl(var(--muted-foreground))"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                  <path
-                    d="M 450 0 L 420 400"
-                    stroke="hsl(var(--muted-foreground))"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                </svg>
-
-                {solineras.map((s, idx) => {
-                  const pos = positions[idx % positions.length];
-                  return (
-                    <div
-                      key={s.id}
-                      onClick={() => setSelected(s)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => e.key === 'Enter' && setSelected(s)}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                      style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                    >
-                      <motion.div
-                        whileHover={{ scale: 1.15 }}
-                        whileTap={{ scale: 0.9 }}
-                        className="relative"
-                      >
-                        <span className="absolute -inset-2 animate-pulse-ring rounded-full bg-success/30" />
-                        <div
-                          className={cn(
-                            'flex h-10 w-10 items-center justify-center rounded-full border-2 shadow-lg',
-                            selected?.id === s.id
-                              ? 'border-primary bg-primary text-white'
-                              : 'border-success/50 bg-success/20 text-success'
-                          )}
-                        >
-                          <Zap className="h-5 w-5" />
-                        </div>
-                        {selected?.id === s.id && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="absolute left-1/2 top-full z-10 mt-2 w-44 -translate-x-1/2 rounded-xl border border-border bg-popover p-3 shadow-xl"
-                          >
-                            <p className="text-xs font-semibold">{s.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {s.points} puntos · {s.pricePerKwh} CUP/kWh
-                            </p>
-                            <Button
-                              size="sm"
-                              className="mt-2 h-7 w-full gradient-solar text-white"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openReserve(s);
-                              }}
-                            >
-                              Reservar
-                            </Button>
-                          </motion.div>
-                        )}
-                      </motion.div>
-                    </div>
-                  );
-                })}
-
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                  <div className="relative">
-                    <span className="absolute -inset-3 animate-pulse-ring rounded-full bg-info/30" />
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-info text-white ring-4 ring-info/30">
-                      <Navigation className="h-3 w-3" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-lg glass px-3 py-2">
-                  <Sun className="h-4 w-4 text-accent" />
-                  <span className="text-xs">Producción solar: 4.2 kW</span>
-                </div>
-                <div className="absolute bottom-4 right-4 flex items-center gap-2 rounded-lg glass px-3 py-2">
-                  <Battery className="h-4 w-4 text-success" />
-                  <span className="text-xs">
-                    {solineras.length} estaciones
-                  </span>
-                </div>
               </div>
             </GlassCard>
           </FadeIn>
@@ -313,7 +247,13 @@ export default function MapaPage() {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.3 + idx * 0.1 }}
                 >
-                  <GlassCard hover className="p-4">
+                  <GlassCard
+                    hover
+                    className={cn(
+                      'p-4 transition-all',
+                      selected?.id === s.id && 'border-primary/50 bg-primary/5'
+                    )}
+                  >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
@@ -336,15 +276,25 @@ export default function MapaPage() {
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-sm font-medium text-primary">
-                        {s.pricePerKwh} CUP/kWh
+                        {s.price_per_kwh} CUP/kWh
                       </span>
-                      <Button
-                        size="sm"
-                        className="gradient-solar text-white hover:opacity-90"
-                        onClick={() => openReserve(s)}
-                      >
-                        Reservar
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => shareSolinera(s)}
+                          title="Compartir por WhatsApp"
+                        >
+                          <Share2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="gradient-solar text-white hover:opacity-90"
+                          onClick={() => openReserve(s)}
+                        >
+                          Reservar
+                        </Button>
+                      </div>
                     </div>
                   </GlassCard>
                 </motion.div>
@@ -375,7 +325,7 @@ export default function MapaPage() {
                       {selected.points} puntos
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {selected.pricePerKwh} CUP/kWh
+                      {selected.price_per_kwh} CUP/kWh
                     </p>
                   </div>
                 </div>
@@ -394,7 +344,7 @@ export default function MapaPage() {
                       key={slot}
                       onClick={() => setSelectedSlot(slot)}
                       className={cn(
-                        'rounded-lg border px-3 py-2 text-sm font-medium transition-all',
+                        'rounded-lg border px-2 py-2 text-xs font-medium transition-all',
                         selectedSlot === slot
                           ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border/50 hover:border-primary/30 hover:bg-muted'
@@ -403,6 +353,24 @@ export default function MapaPage() {
                       {slot}
                     </button>
                   ))}
+                </div>
+                <div className="mt-2">
+                  <label className="text-xs text-muted-foreground">
+                    O elige otra hora:
+                  </label>
+                  <input
+                    type="time"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const [h, m] = e.target.value.split(':');
+                        const hour = parseInt(h);
+                        const ampm = hour >= 12 ? 'PM' : 'AM';
+                        const h12 = hour % 12 || 12;
+                        setSelectedSlot(`${h12}:${m} ${ampm}`);
+                      }
+                    }}
+                    className="mt-1 w-full rounded-lg border border-border/50 bg-card px-3 py-2 text-sm"
+                  />
                 </div>
               </div>
 
@@ -432,7 +400,7 @@ export default function MapaPage() {
                     Estimado (20 kWh)
                   </span>
                   <span className="font-bold text-primary">
-                    {20 * (selected.pricePerKwh || 5)} CUP
+                    {20 * (selected.price_per_kwh || 5)} CUP
                   </span>
                 </div>
               </div>
@@ -444,22 +412,33 @@ export default function MapaPage() {
             </Button>
             <Button
               className="gradient-solar text-white hover:opacity-90"
-              disabled={!selectedSlot || !paymentMethod}
+              disabled={
+                !selectedSlot ||
+                !paymentMethod ||
+                createReservation.isPending
+              }
               onClick={confirmReserve}
             >
-              Confirmar reserva
+              {createReservation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creando...
+                </>
+              ) : (
+                'Confirmar reserva'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog with QR */}
+      {/* Confirmación con QR */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="glass-strong max-w-sm border-border/50">
           <DialogHeader>
             <DialogTitle className="sr-only">Reserva confirmada</DialogTitle>
             <DialogDescription className="sr-only">
-              Muestra este código QR al llegar a la solinera
+              Muestra este código al llegar
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center py-4">
@@ -473,31 +452,45 @@ export default function MapaPage() {
             </motion.div>
             <h3 className="text-lg font-bold">Reserva confirmada</h3>
             <p className="mt-1 text-center text-sm text-muted-foreground">
-              {selected?.name} · Hoy a las {selectedSlot}
+              {lastReservation?.solineraName} · {selectedSlot}
             </p>
 
-            <div className="mt-4 rounded-xl border border-border/50 bg-white p-4">
-              <QRCodeSVG
-                value={JSON.stringify({
-                  type: 'solinet-reservation',
-                  solineraId: selected?.id,
-                  solineraName: selected?.name,
-                  driverId: driver?.id,
-                  driverName: driver?.name,
-                  plate: driver?.plate,
-                  car: driver?.car,
-                  slot: selectedSlot,
-                  amount: 20 * (selected?.pricePerKwh || 5),
-                  method: paymentMethod,
-                  ts: Date.now(),
-                })}
-                size={200}
-                level="M"
-              />
-            </div>
-            <p className="mt-3 text-center text-xs text-muted-foreground">
-              Muestra este código al llegar a la solinera
-            </p>
+            {lastReservation && (
+              <>
+                <div className="mt-4 rounded-xl border border-border/50 bg-white p-4">
+                  <QRCodeSVG
+                    value={JSON.stringify({
+                      type: 'solinet-reservation',
+                      reservationId: lastReservation.id,
+                      shortCode: lastReservation.short_code,
+                      solineraId: lastReservation.solinera_id,
+                      solineraName: lastReservation.solineraName,
+                      driverId: lastReservation.driver_id,
+                      driverName: driverProfile?.name,
+                      plate: driverProfile?.plate,
+                      car: driverProfile?.car,
+                      slot: lastReservation.slot,
+                      amount: lastReservation.amount,
+                      method: lastReservation.payment_method,
+                    })}
+                    size={200}
+                    level="M"
+                  />
+                </div>
+
+                <div className="mt-4 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 text-center">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Código de reserva
+                  </p>
+                  <p className="mt-1 text-3xl font-bold tracking-[0.3em] text-primary">
+                    {lastReservation.short_code}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Muestra este código al llegar
+                  </p>
+                </div>
+              </>
+            )}
 
             <div className="mt-4 flex w-full gap-2">
               <Button

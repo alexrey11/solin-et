@@ -42,6 +42,7 @@
     --chart-5: 0 72% 51%;
     --radius: 0.875rem;
   }
+
   .light {
     --background: 0 0% 98%;
     --foreground: 222 47% 11%;
@@ -80,6 +81,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -92,38 +94,48 @@
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
+
   .glass-strong {
     background: hsl(var(--card) / 0.85);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
   }
+
   .gradient-solar {
     background: linear-gradient(135deg, hsl(28 100% 50%) 0%, hsl(45 100% 50%) 100%);
   }
+
   .gradient-solar-text {
     background: linear-gradient(135deg, hsl(28 100% 55%) 0%, hsl(45 100% 55%) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+
   .gradient-tech {
     background: linear-gradient(135deg, hsl(222 47% 11%) 0%, hsl(217 91% 30%) 100%);
   }
+
   .gradient-success {
     background: linear-gradient(135deg, hsl(160 84% 39%) 0%, hsl(145 63% 42%) 100%);
   }
+
   .shadow-glow-orange {
     box-shadow: 0 0 24px -4px hsl(28 100% 50% / 0.4);
   }
+
   .shadow-glow-green {
     box-shadow: 0 0 24px -4px hsl(160 84% 39% / 0.4);
   }
+
   .shadow-card {
     box-shadow: 0 2px 8px -2px hsl(222 47% 4% / 0.3), 0 0 1px hsl(222 47% 4% / 0.1);
   }
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -135,6 +147,7 @@
     transform: scale(0.8);
     opacity: 0.8;
   }
+
   100% {
     transform: scale(2);
     opacity: 0;
@@ -145,6 +158,7 @@
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -156,4 +170,29 @@
 
 .animate-shimmer {
   animation: shimmer 2s linear infinite;
+}
+
+@media print {
+  body {
+    background: white !important;
+  }
+
+  aside,
+  header,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .glass {
+    background: white !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
 }

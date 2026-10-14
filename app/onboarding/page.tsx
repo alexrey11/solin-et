@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import {
   Sun,
   Zap,
@@ -12,74 +13,174 @@ import {
   Check,
   Building,
   Battery,
-  Wifi,
+  MapPin,
+  Gauge,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GlassCard } from '@/components/soli/glass-card';
 import { cn } from '@/lib/utils';
-import { getCurrentUser } from '@/lib/auth';
-import { saveBusinessProfile } from '@/lib/profile';
-import Image from 'next/image';
 import { toast } from 'sonner';
+import { useSaveSolinera, useSolineraActiva } from '@/lib/queries/solinera';
+import {
+  ChargePointConfig,
+  POWER_OPTIONS,
+  getPointType,
+} from '@/lib/db';
+
+const RealMapDynamic = dynamic(
+  () => import('@/components/soli/real-map').then((m) => m.RealMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-64 w-full items-center justify-center rounded-xl bg-card/30">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+);
 
 const steps = [
   { id: 0, label: 'Bienvenida', icon: Sun },
   { id: 1, label: 'Tu solinera', icon: Building },
-  { id: 2, label: 'Puntos de carga', icon: Zap },
-  { id: 3, label: 'Tarifas', icon: DollarSign },
-  { id: 4, label: 'Listo', icon: Check },
+  { id: 2, label: 'Ubicación', icon: MapPin },
+  { id: 3, label: 'Puntos', icon: Zap },
+  { id: 4, label: 'Tarifas', icon: DollarSign },
+  { id: 5, label: 'Listo', icon: Check },
 ];
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { data: existingSolinera, isLoading } = useSolineraActiva();
+  const saveSolinera = useSaveSolinera();
+
   const [step, setStep] = React.useState(0);
-  const [saving, setSaving] = React.useState(false);
+  const [hydrated, setHydrated] = React.useState(false);
 
   const [name, setName] = React.useState('');
   const [address, setAddress] = React.useState('');
   const [openingHours, setOpeningHours] = React.useState('06:00');
   const [closingHours, setClosingHours] = React.useState('22:00');
   const [phone, setPhone] = React.useState('');
-  const [chargePoints, setChargePoints] = React.useState(2);
   const [pricePerKwh, setPricePerKwh] = React.useState('5.00');
   const [reservationFee, setReservationFee] = React.useState('10.00');
+  const [location, setLocation] = React.useState<{ lat: number; lng: number } | null>(null);
+  const [pointsConfig, setPointsConfig] = React.useState<ChargePointConfig[]>([
+    { id: 'P1', label: 'Punto 1', power: 7.4, pricePerKwh: 5 },
+    { id: 'P2', label: 'Punto 2', power: 7.4, pricePerKwh: 5 },
+    { id: 'P3', label: 'Punto 3', power: 22, pricePerKwh: 7.5 },
+    { id: 'P4', label: 'Punto 4', power: 22, pricePerKwh: 7.5 },
+  ]);
+
+  // Si ya tiene solinera, precargar
+  React.useEffect(() => {
+    if (existingSolinera && !hydrated) {
+      setName(existingSolinera.name || '');
+      setAddress(existingSolinera.address || '');
+      setOpeningHours(existingSolinera.opening_hours || '06:00');
+      setClosingHours(existingSolinera.closing_hours || '22:00');
+      setPhone(existingSolinera.phone || '');
+      setPricePerKwh(String(existingSolinera.price_per_kwh || 5));
+      setLocation({ lat: existingSolinera.lat, lng: existingSolinera.lng });
+
+      if (
+        Array.isArray(existingSolinera.points_config) &&
+        existingSolinera.points_config.length > 0
+      ) {
+        setPointsConfig(existingSolinera.points_config);
+      }
+      setHydrated(true);
+    }
+  }, [existingSolinera, hydrated]);
 
   const next = () => setStep((s) => Math.min(s + 1, steps.length - 1));
   const prev = () => setStep((s) => Math.max(s - 1, 0));
 
-  const handleFinish = async () => {
-    setSaving(true);
-    try {
-      const user = await getCurrentUser();
-      if (!user || !user.id) {
-        toast.error('Sesión no encontrada');
-        router.push('/select-mode');
-        return;
-      }
+  const updatePoint = (index: number, updates: Partial<ChargePointConfig>) => {
+    setPointsConfig((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, ...updates } : p))
+    );
+  };
 
-      await saveBusinessProfile(user.id, {
+  const addPoint = () => {
+    if (pointsConfig.length >= 10) {
+      toast.error('Máximo 10 puntos');
+      return;
+    }
+    const n = pointsConfig.length + 1;
+    const basePrice = parseFloat(pricePerKwh) || 5;
+    setPointsConfig([
+      ...pointsConfig,
+      {
+        id: `P${n}`,
+        label: `Punto ${n}`,
+        power: 7.4,
+        pricePerKwh: basePrice,
+      },
+    ]);
+  };
+
+  const removePoint = (index: number) => {
+    if (pointsConfig.length <= 1) {
+      toast.error('Debe haber al menos 1 punto');
+      return;
+    }
+    const newConfig = pointsConfig
+      .filter((_, i) => i !== index)
+      .map((p, i) => ({
+        ...p,
+        id: `P${i + 1}`,
+        label: `Punto ${i + 1}`,
+      }));
+    setPointsConfig(newConfig);
+  };
+
+  const handleFinish = async () => {
+    if (!location) {
+      toast.error('Marca la ubicación de tu solinera en el mapa');
+      setStep(2);
+      return;
+    }
+    if (pointsConfig.length === 0) {
+      toast.error('Configura al menos un punto de carga');
+      setStep(3);
+      return;
+    }
+
+    try {
+      await saveSolinera.mutateAsync({
         name: name.trim() || 'Mi Solinera',
-        owner: user.name,
-        email: user.email,
         address: address.trim() || 'Sin dirección',
-        phone: phone.trim() || undefined,
+        lat: location.lat,
+        lng: location.lng,
+        pricePerKwh: parseFloat(pricePerKwh) || 5,
+        points: pointsConfig.length,
+        pointsConfig: pointsConfig,
         openingHours,
         closingHours,
-        points: chargePoints,
-        pricePerKwh: parseFloat(pricePerKwh) || 5,
-        reservationFee: parseFloat(reservationFee) || 10,
+        phone: phone.trim(),
       });
 
-      toast.success('Solinera creada');
+      toast.success('Solinera guardada');
       router.push('/dashboard');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Error al guardar');
-      setSaving(false);
+      toast.error(err.message || 'Error al guardar');
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -90,19 +191,12 @@ export default function OnboardingPage() {
 
       <div className="relative mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-8 sm:px-6">
         <div className="mb-8 flex items-center justify-center gap-2.5">
-          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-glow-orange">
-            <Image
-              src="/logo.png"
-              alt="SoliNet"
-              width={64}
-              height={64}
-              className="h-full w-full object-contain"
-            />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl gradient-solar shadow-glow-orange">
+            <Sun className="h-7 w-7 text-white" />
           </div>
           <span className="text-2xl font-bold tracking-tight">SoliNet</span>
         </div>
 
-        {/* Progress */}
         <div className="mb-8 flex items-center justify-center gap-2">
           {steps.map((s, i) => (
             <div key={s.id} className="flex items-center gap-2">
@@ -156,8 +250,7 @@ export default function OnboardingPage() {
                 </h1>
                 <p className="mt-3 max-w-md text-muted-foreground">
                   El sistema operativo de la energía solar privada en Cuba.
-                  Configura tu solinera en minutos y empieza a ofrecer carga de
-                  vehículos eléctricos.
+                  Configura tu solinera en minutos.
                 </p>
                 <div className="mt-8 grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
                   <FeatureCard
@@ -204,14 +297,14 @@ export default function OnboardingPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Horario de apertura</Label>
+                      <Label>Apertura</Label>
                       <Input
                         value={openingHours}
                         onChange={(e) => setOpeningHours(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Horario de cierre</Label>
+                      <Label>Cierre</Label>
                       <Input
                         value={closingHours}
                         onChange={(e) => setClosingHours(e.target.value)}
@@ -232,65 +325,135 @@ export default function OnboardingPage() {
 
             {step === 2 && (
               <GlassCard className="p-6">
-                <h2 className="text-xl font-bold">
-                  Configura tus puntos de carga
-                </h2>
+                <h2 className="text-xl font-bold">Ubica tu solinera</h2>
                 <p className="mb-5 text-sm text-muted-foreground">
-                  ¿Cuántos puntos de carga tiene tu solinera?
+                  Toca el mapa en la ubicación exacta de tu solinera
                 </p>
-
-                <div className="mb-6 flex items-center justify-center gap-6">
-                  <button
-                    onClick={() => setChargePoints(Math.max(1, chargePoints - 1))}
-                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-border hover:bg-muted"
-                  >
-                    -
-                  </button>
-                  <span className="text-4xl font-bold text-primary">
-                    {chargePoints}
-                  </span>
-                  <button
-                    onClick={() =>
-                      setChargePoints(Math.min(10, chargePoints + 1))
-                    }
-                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-border hover:bg-muted"
-                  >
-                    +
-                  </button>
+                <div className="h-80 w-full overflow-hidden rounded-xl border border-border/50">
+                  <RealMapDynamic
+                    solineras={[]}
+                    onSelect={() => { }}
+                    onReserve={() => { }}
+                    interactive={true}
+                    onLocationSelect={(lat, lng) => setLocation({ lat, lng })}
+                    markerPosition={location ? [location.lat, location.lng] : null}
+                    initialCenter={location ? [location.lat, location.lng] : undefined}
+                    initialZoom={location ? 16 : 12}
+                  />
                 </div>
-
-                <div className="space-y-3">
-                  {Array.from({ length: chargePoints }).map((_, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                      className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/30 p-4"
-                    >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-solar text-white">
-                        <Zap className="h-5 w-5" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium">Punto {i + 1}</p>
-                      </div>
-                      <select className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm">
-                        <option>7.4 kW · Tipo 2</option>
-                        <option>11 kW · Tipo 2</option>
-                        <option>22 kW · CCS</option>
-                        <option>50 kW · CCS</option>
-                      </select>
-                    </motion.div>
-                  ))}
-                </div>
+                {location && (
+                  <div className="mt-3 rounded-lg border border-success/30 bg-success/5 p-3">
+                    <p className="text-xs text-success">
+                      ✓ Ubicación marcada: {location.lat.toFixed(5)},{' '}
+                      {location.lng.toFixed(5)}
+                    </p>
+                  </div>
+                )}
               </GlassCard>
             )}
 
             {step === 3 && (
               <GlassCard className="p-6">
+                <h2 className="text-xl font-bold">Configura tus puntos</h2>
+                <p className="mb-5 text-sm text-muted-foreground">
+                  Elige la potencia de cada punto. Los de mayor potencia cobran más.
+                </p>
+
+                <div className="space-y-3">
+                  {pointsConfig.map((point, i) => {
+                    const type = getPointType(point.power);
+                    return (
+                      <motion.div
+                        key={point.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        className={cn(
+                          'rounded-xl border p-4 transition-all',
+                          type === 'ultra'
+                            ? 'border-destructive/30 bg-destructive/5'
+                            : type === 'rápido'
+                              ? 'border-warning/30 bg-warning/5'
+                              : 'border-info/30 bg-info/5'
+                        )}
+                      >
+                        <div className="mb-3 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-solar text-white">
+                              <Zap className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{point.label}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {point.power} kW · {type}
+                              </p>
+                            </div>
+                          </div>
+                          {pointsConfig.length > 1 && (
+                            <button
+                              onClick={() => removePoint(i)}
+                              className="rounded-lg px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                            >
+                              Eliminar
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Potencia</Label>
+                            <select
+                              value={point.power}
+                              onChange={(e) =>
+                                updatePoint(i, {
+                                  power: parseFloat(e.target.value),
+                                })
+                              }
+                              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                            >
+                              {POWER_OPTIONS.map((o) => (
+                                <option key={o.power} value={o.power}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">CUP/kWh</Label>
+                            <Input
+                              type="number"
+                              step="0.5"
+                              value={point.pricePerKwh}
+                              onChange={(e) =>
+                                updatePoint(i, {
+                                  pricePerKwh: parseFloat(e.target.value) || 0,
+                                })
+                              }
+                              className="h-[38px]"
+                            />
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={addPoint}
+                    disabled={pointsConfig.length >= 10}
+                  >
+                    + Añadir punto de carga
+                  </Button>
+                </div>
+              </GlassCard>
+            )}
+
+            {step === 4 && (
+              <GlassCard className="p-6">
                 <h2 className="text-xl font-bold">Define tus tarifas</h2>
                 <p className="mb-5 text-sm text-muted-foreground">
-                  Puedes ajustarlas más adelante
+                  Tarifa base (los puntos con más potencia aplican multiplicador)
                 </p>
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -313,19 +476,20 @@ export default function OnboardingPage() {
                     <div className="flex items-center gap-2">
                       <Battery className="h-4 w-4 text-success" />
                       <span className="text-sm font-medium">
-                        Producción solar estimada
+                        Configuración actual
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Con 6 paneles de 450W puedes generar ~21 kWh/día,
-                      suficiente para ~4 cargas completas
+                      {pointsConfig.length} puntos configurados. Ejemplo: 20 kWh
+                      en un punto rápido ={' '}
+                      {Math.round((parseFloat(pricePerKwh) || 5) * 20 * 1.5)} CUP
                     </p>
                   </div>
                 </div>
               </GlassCard>
             )}
 
-            {step === 4 && (
+            {step === 5 && (
               <div className="flex flex-col items-center text-center">
                 <motion.div
                   initial={{ scale: 0 }}
@@ -346,19 +510,19 @@ export default function OnboardingPage() {
                     value={name || 'Sin nombre'}
                   />
                   <SummaryItem
-                    icon={<Zap className="h-4 w-4" />}
+                    icon={<MapPin className="h-4 w-4" />}
+                    label="Ubicación"
+                    value={location ? 'Marcada' : 'Sin marcar'}
+                  />
+                  <SummaryItem
+                    icon={<Gauge className="h-4 w-4" />}
                     label="Puntos"
-                    value={`${chargePoints} activos`}
+                    value={`${pointsConfig.length} configurados`}
                   />
                   <SummaryItem
                     icon={<DollarSign className="h-4 w-4" />}
-                    label="Tarifa"
+                    label="Tarifa base"
                     value={`${pricePerKwh} CUP/kWh`}
-                  />
-                  <SummaryItem
-                    icon={<Wifi className="h-4 w-4" />}
-                    label="Estado"
-                    value="En línea"
                   />
                 </div>
               </div>
@@ -367,17 +531,18 @@ export default function OnboardingPage() {
         </AnimatePresence>
 
         <div className="mt-8 flex items-center justify-between">
-          {step > 0 && step < 4 ? (
+          {step > 0 && step < 5 ? (
             <Button variant="outline" onClick={prev}>
               Atrás
             </Button>
           ) : (
             <div />
           )}
-          {step < 4 ? (
+          {step < 5 ? (
             <Button
               className="gradient-solar text-white hover:opacity-90"
               onClick={next}
+              disabled={step === 2 && !location}
             >
               {step === 0 ? 'Empezar' : 'Continuar'}
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -386,10 +551,19 @@ export default function OnboardingPage() {
             <Button
               className="gradient-solar text-white hover:opacity-90"
               onClick={handleFinish}
-              disabled={saving}
+              disabled={saveSolinera.isPending}
             >
-              {saving ? 'Guardando...' : 'Ir al Dashboard'}
-              <ArrowRight className="ml-2 h-4 w-4" />
+              {saveSolinera.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  Ir al Dashboard
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              )}
             </Button>
           )}
         </div>

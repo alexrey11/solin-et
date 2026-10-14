@@ -40,14 +40,13 @@ export async function registerUser(data: {
         return { success: false, error: 'No se pudo crear el usuario' };
     }
 
-    // Crear usuario local en Dexie también
     const userId = await db.users.add({
         supabaseId: authData.user.id,
         role: data.role,
         name: data.name.trim(),
         email: data.email.trim().toLowerCase(),
         phone: data.phone?.trim(),
-        passwordHash: '', // Ya no usamos hash local
+        passwordHash: '',
         createdAt: Date.now(),
         syncStatus: 'synced',
     });
@@ -87,17 +86,18 @@ export async function loginUser(
         return { success: false, error: 'Credenciales incorrectas' };
     }
 
-    // Buscar o crear usuario local
+    // Buscar SOLO por supabaseId (identificador único real)
     let localUser = await db.users
         .where('supabaseId')
         .equals(data.user.id)
         .first();
 
     if (!localUser) {
-        // Crear usuario local si no existe (por si limpiaron IndexedDB)
+        // Crear usuario local si no existe
         const id = await db.users.add({
             supabaseId: data.user.id,
-            role: (data.user.user_metadata?.role as 'driver' | 'business') || 'driver',
+            role:
+                (data.user.user_metadata?.role as 'driver' | 'business') || 'driver',
             name: data.user.user_metadata?.name || 'Usuario',
             email: data.user.email || email,
             phone: data.user.user_metadata?.phone || '',
@@ -111,14 +111,21 @@ export async function loginUser(
     return { success: true, user: localUser! };
 }
 
-// ===== LOGOUT =====
+// ===== LOGOUT (LIMPIA TODO) =====
 
 export async function logoutUser(): Promise<void> {
     const supabase = createClient();
     await supabase.auth.signOut();
 
-    // Limpiar sesión local
+    // ⚠️ CRÍTICO: Limpiar TODOS los datos del usuario anterior
+    await db.users.clear();
     await db.session.clear();
+    await db.solineras.clear();
+    await db.drivers.clear();
+    await db.reservations.clear();
+    await db.queue.clear();
+    await db.transactions.clear();
+
     if (typeof window !== 'undefined') {
         localStorage.removeItem('solinet_mode');
     }
@@ -134,12 +141,12 @@ export async function getCurrentUser(): Promise<User | null> {
     } = await supabase.auth.getUser();
 
     if (!user) {
-        // Limpiar cualquier usuario local que quede
+        // Si no hay usuario en Supabase, limpiar TODO local
         await db.users.clear();
         return null;
     }
 
-    // Buscar o crear usuario local
+    // Buscar SOLO por supabaseId
     let localUser = await db.users
         .where('supabaseId')
         .equals(user.id)

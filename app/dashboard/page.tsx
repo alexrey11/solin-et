@@ -15,10 +15,16 @@ import {
   Wallet,
   Activity,
   Calendar,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/soli/app-shell';
-import { GlassCard, StatCard, SoliBadge, StatusIndicator } from '@/components/soli/glass-card';
+import {
+  GlassCard,
+  StatCard,
+  SoliBadge,
+  StatusIndicator,
+} from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,102 +35,57 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Solinera } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth';
-import { getBusinessProfile } from '@/lib/profile';
+import { useSolineraActiva } from '@/lib/queries/solinera';
+import { useQueue, useTodayTransactions } from '@/lib/queries/cola';
+import {
+  useSolineraReservations,
+} from '@/lib/queries/reservas';
 
 export default function DashboardPage() {
-  const [solinera, setSolinera] = React.useState<Solinera | null>(null);
-  const [loadingProfile, setLoadingProfile] = React.useState(true);
-  const [user, setUser] = React.useState<any>(null);
+  const { data: solinera, isLoading: loadingSolinera } = useSolineraActiva();
+  const { data: queue = [] } = useQueue();
+  const { data: todayTransactions = [] } = useTodayTransactions();
+  const { data: reservations = [] } = useSolineraReservations();
 
-  // Cargar usuario y solinera
-  React.useEffect(() => {
-    const load = async () => {
-      const u = await getCurrentUser();
-      setUser(u);
-      if (!u || !u.id) {
-        setLoadingProfile(false);
-        return;
-      }
-      const profile = await getBusinessProfile(u.id);
-      setSolinera(profile);
-      setLoadingProfile(false);
-    };
-    load();
-  }, []);
-
-  // Datos en vivo desde Dexie
-  const queue = useLiveQuery(
-    () => db.queue.orderBy('createdAt').reverse().toArray(),
-    []
-  ) || [];
-
-  const reservations = useLiveQuery(
-    () => db.reservations.orderBy('createdAt').reverse().toArray(),
-    []
-  ) || [];
-
-  const transactions = useLiveQuery(
-    () => db.transactions.orderBy('createdAt').reverse().toArray(),
-    []
-  ) || [];
-
-  // ===== MÉTRICAS REALES =====
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayTs = today.getTime();
-
-  // Ingresos hoy = reservas completadas + transacciones
-  const todayCompletedReservations = reservations.filter(
-    (r) => r.status === 'completed' && r.createdAt >= todayTs
+  // ===== MÉTRICAS =====
+  const todayRevenue = todayTransactions.reduce(
+    (sum: number, t: any) => sum + Number(t.amount || 0),
+    0
   );
-  const todayTransactions = transactions.filter((t) => t.createdAt >= todayTs);
-
-  const todayRevenue =
-    todayCompletedReservations.reduce((sum, r) => sum + r.amount, 0) +
-    todayTransactions.reduce((sum, t) => sum + t.amount, 0);
-
-  // Energía vendida (estimado: 0.2 kWh por CUP)
   const todayKwh = Math.round(todayRevenue / 5);
+  const todayClients = todayTransactions.length;
 
-  // Clientes hoy
-  const todayClients =
-    todayCompletedReservations.length + todayTransactions.length;
-
-  // Carga promedio
-  const doneItems = queue.filter((q) => q.status === 'done' && q.chargeTime > 0);
+  const doneItems = queue.filter(
+    (q) => q.status === 'done' && q.duration_min && q.duration_min > 0
+  );
   const avgChargeTime =
     doneItems.length > 0
       ? Math.round(
-        doneItems.reduce((sum, q) => sum + q.chargeTime, 0) / doneItems.length
+        doneItems.reduce(
+          (sum, q) => sum + (q.duration_min || 0),
+          0
+        ) / doneItems.length
       )
       : 0;
 
-  // Reservas pendientes (por aceptar)
   const pendingReservations = reservations.filter(
     (r) => r.status === 'pending'
   );
-
-  // Reservas confirmadas (esperando llegada)
   const confirmedReservations = reservations.filter(
     (r) => r.status === 'confirmed'
   );
-
-  // Cola activa
   const activeQueue = queue.filter(
     (q) => q.status === 'waiting' || q.status === 'charging'
   );
 
-  // Datos de ingresos por hora (agrupados)
+  // Ingresos por hora
   const revenueByHour = React.useMemo(() => {
     const hours = ['6am', '8am', '10am', '12pm', '2pm', '4pm', '6pm', '8pm'];
     const hourMap: Record<string, number> = {};
     hours.forEach((h) => (hourMap[h] = 0));
 
-    todayCompletedReservations.forEach((r) => {
-      const hour = new Date(r.createdAt).getHours();
+    todayTransactions.forEach((t: any) => {
+      const hour = new Date(t.created_at).getHours();
       let label = '';
       if (hour >= 6 && hour < 8) label = '6am';
       else if (hour >= 8 && hour < 10) label = '8am';
@@ -134,32 +95,45 @@ export default function DashboardPage() {
       else if (hour >= 16 && hour < 18) label = '4pm';
       else if (hour >= 18 && hour < 20) label = '6pm';
       else if (hour >= 20 && hour < 22) label = '8pm';
-      if (label) hourMap[label] += r.amount;
-    });
-
-    todayTransactions.forEach((t) => {
-      const hour = new Date(t.createdAt).getHours();
-      let label = '';
-      if (hour >= 6 && hour < 8) label = '6am';
-      else if (hour >= 8 && hour < 10) label = '8am';
-      else if (hour >= 10 && hour < 12) label = '10am';
-      else if (hour >= 12 && hour < 14) label = '12pm';
-      else if (hour >= 14 && hour < 16) label = '2pm';
-      else if (hour >= 16 && hour < 18) label = '4pm';
-      else if (hour >= 18 && hour < 20) label = '6pm';
-      else if (hour >= 20 && hour < 22) label = '8pm';
-      if (label) hourMap[label] += t.amount;
+      if (label) hourMap[label] += Number(t.amount || 0);
     });
 
     return hours.map((h) => ({ hour: h, value: hourMap[h] }));
-  }, [todayCompletedReservations, todayTransactions]);
+  }, [todayTransactions]);
+
+  if (loadingSolinera) {
+    return (
+      <AppShell>
+        <div className="flex h-96 flex-col items-center justify-center gap-4 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p>Cargando dashboard...</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!solinera) {
+    return (
+      <AppShell>
+        <div className="space-y-6">
+          <PageHeader title="Dashboard" subtitle="Sin solinera configurada" />
+          <GlassCard className="p-12 text-center">
+            <h2 className="text-xl font-bold">Configura tu solinera primero</h2>
+            <Button className="mt-4 gradient-solar" asChild>
+              <Link href="/onboarding">Configurar ahora</Link>
+            </Button>
+          </GlassCard>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <div className="space-y-6">
         <PageHeader
           title="Dashboard"
-          subtitle={`${solinera?.name || 'Mi Solinera'} · Hoy, ${new Date().toLocaleDateString(
+          subtitle={`${solinera.name} · Hoy, ${new Date().toLocaleDateString(
             'es-ES',
             { day: 'numeric', month: 'long' }
           )}`}
@@ -182,6 +156,71 @@ export default function DashboardPage() {
             </>
           }
         />
+
+        {/* Alerta reservas pendientes */}
+        {pendingReservations.length > 0 && (
+          <FadeIn delay={0.05}>
+            <GlassCard className="border-info/40 bg-info/5 p-6">
+              <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-4">
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-info text-white"
+                  >
+                    <span className="text-2xl font-bold">
+                      {pendingReservations.length}
+                    </span>
+                  </motion.div>
+                  <div>
+                    <p className="text-2xl font-bold">
+                      Reserva{pendingReservations.length > 1 ? 's' : ''}{' '}
+                      pendiente{pendingReservations.length > 1 ? 's' : ''}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Acepta o rechaza desde la cola
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="lg"
+                  className="gradient-solar text-white hover:opacity-90"
+                  asChild
+                >
+                  <Link href="/cola">
+                    Ver cola <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+              </div>
+            </GlassCard>
+          </FadeIn>
+        )}
+
+        {confirmedReservations.length > 0 && (
+          <FadeIn delay={0.07}>
+            <GlassCard className="border-success/40 bg-success/5 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success text-white">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">
+                      {confirmedReservations.length} conductor
+                      {confirmedReservations.length > 1 ? 'es' : ''} en camino
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Esperando llegada
+                    </p>
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/escanear">Escanear llegada</Link>
+                </Button>
+              </div>
+            </GlassCard>
+          </FadeIn>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -226,41 +265,8 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Alerta de reservas pendientes */}
-        {pendingReservations.length > 0 && (
-          <FadeIn delay={0.05}>
-            <GlassCard className="border-info/40 bg-info/5 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-info text-white">
-                    <Calendar className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-semibold">
-                      Tienes {pendingReservations.length} reserva
-                      {pendingReservations.length > 1 ? 's' : ''} pendiente
-                      {pendingReservations.length > 1 ? 's' : ''}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Ve a la cola para aceptar o rechazar
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  className="gradient-solar text-white"
-                  asChild
-                >
-                  <Link href="/cola">Ver cola</Link>
-                </Button>
-              </div>
-            </GlassCard>
-          </FadeIn>
-        )}
-
-        {/* Main Grid */}
+        {/* Charts */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Revenue Chart */}
           <FadeIn delay={0.2} className="lg:col-span-2">
             <GlassCard className="p-6">
               <div className="mb-4 flex items-center justify-between">
@@ -280,13 +286,7 @@ export default function DashboardPage() {
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={revenueByHour}>
                   <defs>
-                    <linearGradient
-                      id="revGrad"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
+                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop
                         offset="0%"
                         stopColor="hsl(var(--primary))"
@@ -332,7 +332,6 @@ export default function DashboardPage() {
             </GlassCard>
           </FadeIn>
 
-          {/* Estado de baterías (placeholder honesto) */}
           <FadeIn delay={0.3}>
             <GlassCard className="p-6">
               <div className="mb-4 flex items-center justify-between">
@@ -347,8 +346,7 @@ export default function DashboardPage() {
                   Sin datos del inversor
                 </h4>
                 <p className="mt-1 max-w-[200px] text-xs text-muted-foreground">
-                  Conecta tu inversor solar para ver el estado de las baterías
-                  en tiempo real
+                  Conecta tu inversor para ver el estado en tiempo real
                 </p>
                 <Button
                   variant="outline"
@@ -363,9 +361,8 @@ export default function DashboardPage() {
           </FadeIn>
         </div>
 
-        {/* Queue Preview & Quick Actions */}
+        {/* Queue & Actions */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Queue */}
           <FadeIn delay={0.4} className="lg:col-span-2">
             <GlassCard className="p-6">
               <div className="mb-4 flex items-center justify-between">
@@ -390,7 +387,7 @@ export default function DashboardPage() {
                     <Car className="mx-auto mb-2 h-10 w-10 opacity-40" />
                     <p className="text-sm">No hay vehículos en cola</p>
                     <p className="mt-1 text-xs">
-                      Los vehículos aparecerán cuando los aceptes desde reservas
+                      Los vehículos aparecerán cuando los aceptes
                     </p>
                   </div>
                 )}
@@ -400,7 +397,7 @@ export default function DashboardPage() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.4 + idx * 0.1 }}
-                    className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-4 transition-colors hover:border-primary/20"
+                    className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-4"
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary">
@@ -417,8 +414,8 @@ export default function DashboardPage() {
                       <div className="text-right">
                         <p className="text-sm font-medium">
                           {item.status === 'charging'
-                            ? `${item.chargeTime} min`
-                            : `${item.waitTime} min`}
+                            ? `${item.duration_min} min`
+                            : 'Esperando'}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {item.status === 'charging' ? 'cargando' : 'espera'}
@@ -429,9 +426,7 @@ export default function DashboardPage() {
                           item.status === 'charging' ? 'success' : 'warning'
                         }
                       >
-                        {item.status === 'charging'
-                          ? 'Cargando'
-                          : 'En espera'}
+                        {item.status === 'charging' ? 'Cargando' : 'En espera'}
                       </SoliBadge>
                     </div>
                   </motion.div>
@@ -440,7 +435,6 @@ export default function DashboardPage() {
             </GlassCard>
           </FadeIn>
 
-          {/* Quick Actions */}
           <FadeIn delay={0.5}>
             <GlassCard className="p-6">
               <h3 className="mb-4 text-lg font-semibold">Accesos rápidos</h3>

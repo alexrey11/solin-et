@@ -13,6 +13,8 @@ import {
     DollarSign,
     Keyboard,
     RefreshCw,
+    Award,
+    Loader2,
 } from 'lucide-react';
 import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, SoliBadge } from '@/components/soli/glass-card';
@@ -20,12 +22,20 @@ import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { db, Reservation } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth';
 import { toast } from 'sonner';
+import { getCurrentUser } from '@/lib/auth';
+import {
+    useReservationByShortCode,
+    useCompleteReservation,
+    useSolineraReservations,
+    ReservationRemote,
+} from '@/lib/queries/reservas';
+import { useAddToQueue } from '@/lib/queries/cola';
 
 interface ReservationData {
     type: string;
+    reservationId: string;
+    shortCode: string;
     solineraId: number;
     solineraName: string;
     driverId: number;
@@ -35,7 +45,6 @@ interface ReservationData {
     slot: string;
     amount: number;
     method: 'transfermovil' | 'enzona';
-    ts: number;
 }
 
 export default function EscanearPage() {
@@ -45,18 +54,26 @@ export default function EscanearPage() {
     const [scannerActive, setScannerActive] = React.useState(false);
     const [scanned, setScanned] = React.useState<ReservationData | null>(null);
     const [matchedReservation, setMatchedReservation] =
-        React.useState<Reservation | null>(null);
+        React.useState<ReservationRemote | null>(null);
     const [error, setError] = React.useState<string | null>(null);
     const [processing, setProcessing] = React.useState(false);
     const [manualMode, setManualMode] = React.useState(false);
     const [shortCode, setShortCode] = React.useState('');
     const [checkingAccess, setCheckingAccess] = React.useState(true);
     const [resetKey, setResetKey] = React.useState(0);
+    const [driverHistory, setDriverHistory] = React.useState({
+        count: 0,
+        total: 0,
+    });
 
     const scannerRef = React.useRef<any>(null);
     const scannerId = `qr-scanner-region-${resetKey}`;
 
-    // ===== VERIFICAR ROL =====
+    const findByShortCode = useReservationByShortCode();
+    const completeReservation = useCompleteReservation();
+    const addToQueue = useAddToQueue();
+
+    // Verificar rol
     React.useEffect(() => {
         const checkRole = async () => {
             const user = await getCurrentUser();
@@ -74,7 +91,7 @@ export default function EscanearPage() {
         checkRole();
     }, [router]);
 
-    // ===== INICIAR SCANNER =====
+    // Iniciar scanner
     React.useEffect(() => {
         if (checkingAccess) return;
         if (manualMode) return;
@@ -112,13 +129,9 @@ export default function EscanearPage() {
             } catch (err: any) {
                 console.error('Error iniciando cámara:', err);
                 if (mounted) {
-                    // Si falla la cámara, pasar directo a modo manual
-                    setError(
-                        'No se pudo acceder a la cámara. Usa el código de reserva.'
-                    );
+                    setError('No se pudo acceder a la cámara. Usa el código.');
                     setScannerReady(true);
                     setScannerActive(false);
-                    // Auto-switch a modo manual después de 1s
                     setTimeout(() => {
                         if (mounted) {
                             setManualMode(true);
@@ -142,7 +155,6 @@ export default function EscanearPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [checkingAccess, manualMode, scanned, matchedReservation, resetKey, error]);
 
-    // ===== PROCESAR QR =====
     const handleScanQR = async (text: string) => {
         try {
             const data: ReservationData = JSON.parse(text);
@@ -151,29 +163,20 @@ export default function EscanearPage() {
                 return;
             }
 
-            const confirmed = await db.reservations
-                .filter(
-                    (r) =>
-                        r.status === 'confirmed' &&
-                        r.slot === data.slot &&
-                        r.solineraName === data.solineraName
-                )
-                .first();
-
-            if (!confirmed) {
+            const reservation = await findByShortCode(data.shortCode);
+            if (!reservation) {
                 setError('Esta reserva no está confirmada o ya fue procesada.');
                 return;
             }
 
             setScanned(data);
-            setMatchedReservation(confirmed);
+            setMatchedReservation(reservation);
             setError(null);
         } catch (err) {
             setError('El código QR no es válido');
         }
     };
 
-    // ===== PROCESAR CÓDIGO CORTO =====
     const handleManualSubmit = async () => {
         const code = shortCode.trim().toUpperCase();
         if (!code) {
@@ -182,37 +185,26 @@ export default function EscanearPage() {
         }
 
         try {
-            const reservation = await db.reservations
-                .where('shortCode')
-                .equals(code)
-                .first();
+            const reservation = await findByShortCode(code);
 
             if (!reservation) {
-                setError('Código no encontrado. Verifica que esté bien escrito.');
+                setError('Código no encontrado o reserva no confirmada');
                 return;
             }
-
-            if (reservation.status !== 'confirmed') {
-                setError(
-                    'Esta reserva no está confirmada. Acéptala primero desde la cola.'
-                );
-                return;
-            }
-
-            const driver = await db.drivers.get(reservation.driverId);
 
             setScanned({
                 type: 'solinet-reservation',
-                solineraId: reservation.solineraId,
-                solineraName: reservation.solineraName,
-                driverId: reservation.driverId,
-                driverName: driver?.name || 'Conductor',
-                plate: driver?.plate || 'N/A',
-                car: driver?.car || 'Vehículo Eléctrico',
+                reservationId: reservation.id,
+                shortCode: reservation.short_code,
+                solineraId: reservation.solinera_id,
+                solineraName: reservation.solinera?.name || '',
+                driverId: reservation.driver_id,
+                driverName: reservation.driver_profile?.name || 'Conductor',
+                plate: reservation.driver_profile?.plate || 'N/A',
+                car: reservation.driver_profile?.car || 'Vehículo Eléctrico',
                 slot: reservation.slot,
                 amount: reservation.amount,
-                method: reservation.method,
-                ts: reservation.createdAt,
+                method: reservation.payment_method,
             });
             setMatchedReservation(reservation);
             setError(null);
@@ -222,43 +214,32 @@ export default function EscanearPage() {
         }
     };
 
-    // ===== CONFIRMAR ENTRADA =====
     const handleConfirm = async () => {
         if (!scanned || !matchedReservation) return;
         setProcessing(true);
 
         try {
-            if (matchedReservation.id) {
-                await db.reservations.update(matchedReservation.id, {
-                    status: 'completed',
-                    syncStatus: 'pending',
-                });
-            }
-
-            await db.queue.add({
-                name: scanned.driverName || 'Conductor',
-                car: scanned.car || 'Vehículo Eléctrico',
-                plate: scanned.plate || 'N/A',
-                waitTime: 0,
-                chargeTime: 0,
-                status: 'waiting',
+            // 1. Añadir a la cola
+            await addToQueue.mutateAsync({
+                name: scanned.driverName,
+                plate: scanned.plate,
+                car: scanned.car,
                 amount: scanned.amount,
-                point: undefined,
-                createdAt: Date.now(),
             });
+
+            // 2. Marcar reserva como completed
+            await completeReservation.mutateAsync(matchedReservation.id);
 
             toast.success(`${scanned.driverName} añadido a la cola`);
             router.push('/cola');
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-            toast.error('Error al procesar la reserva');
+            toast.error(err.message || 'Error al procesar');
             setProcessing(false);
         }
     };
 
-    // ===== RESET LIMPIO (SIN RECARGAR) =====
     const handleReset = () => {
-        // Detener scanner si está activo
         if (scannerRef.current && scannerActive) {
             try {
                 scannerRef.current.stop().catch(() => { });
@@ -271,7 +252,7 @@ export default function EscanearPage() {
         setScannerReady(false);
         setScannerActive(false);
         setManualMode(false);
-        // Forzar reinicialización del scanner
+        setDriverHistory({ count: 0, total: 0 });
         setResetKey((k) => k + 1);
     };
 
@@ -323,7 +304,6 @@ export default function EscanearPage() {
 
                 <FadeIn delay={0.1}>
                     <GlassCard className="p-6">
-                        {/* ===== MODO CÓDIGO CORTO ===== */}
                         {manualMode && !scanned && (
                             <div className="space-y-4">
                                 <div className="flex items-center gap-3">
@@ -334,7 +314,6 @@ export default function EscanearPage() {
                                 </div>
                                 <p className="text-sm text-muted-foreground">
                                     El conductor verá un código de 6 caracteres debajo de su QR.
-                                    Pídeselo y escríbelo aquí.
                                 </p>
                                 <div className="space-y-2">
                                     <Label>Código de reserva</Label>
@@ -362,7 +341,6 @@ export default function EscanearPage() {
                             </div>
                         )}
 
-                        {/* ===== MODO CÁMARA ===== */}
                         {!manualMode && !scanned && !error && (
                             <>
                                 <div className="mb-4 flex items-center gap-3">
@@ -383,7 +361,6 @@ export default function EscanearPage() {
                             </>
                         )}
 
-                        {/* ===== ERROR ===== */}
                         {error && !scanned && (
                             <div className="flex flex-col items-center py-8 text-center">
                                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/15">
@@ -416,7 +393,6 @@ export default function EscanearPage() {
                             </div>
                         )}
 
-                        {/* ===== DATOS CONFIRMADOS ===== */}
                         {scanned && matchedReservation && (
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.95 }}
@@ -439,7 +415,7 @@ export default function EscanearPage() {
                                             Código
                                         </span>
                                         <span className="font-mono font-bold tracking-widest text-primary">
-                                            {matchedReservation.shortCode}
+                                            {scanned.shortCode}
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -455,12 +431,6 @@ export default function EscanearPage() {
                                         <span className="font-mono font-medium">
                                             {scanned.plate}
                                         </span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-muted-foreground">
-                                            Vehículo
-                                        </span>
-                                        <span className="font-medium">{scanned.car}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-sm text-muted-foreground">
@@ -489,10 +459,23 @@ export default function EscanearPage() {
                                     <Button
                                         className="flex-1 gradient-solar text-white hover:opacity-90"
                                         onClick={handleConfirm}
-                                        disabled={processing}
+                                        disabled={
+                                            processing ||
+                                            addToQueue.isPending ||
+                                            completeReservation.isPending
+                                        }
                                     >
-                                        <Check className="mr-2 h-4 w-4" />
-                                        {processing ? 'Añadiendo...' : 'Dar entrada a la cola'}
+                                        {processing ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Añadiendo...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Check className="mr-2 h-4 w-4" />
+                                                Dar entrada
+                                            </>
+                                        )}
                                     </Button>
                                 </div>
                             </motion.div>

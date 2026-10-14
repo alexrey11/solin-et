@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
-import { SyncProvider } from '@/components/sync-provider';
+import { QueryProvider } from '@/components/query-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -50,9 +50,22 @@ export default function RootLayout({
       <head>
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png" />
-        <link rel="icon" type="image/png" sizes="512x512" href="/icon-512x512.png" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <link
+          rel="icon"
+          type="image/png"
+          sizes="192x192"
+          href="/icon-192x192.png"
+        />
+        <link
+          rel="icon"
+          type="image/png"
+          sizes="512x512"
+          href="/icon-512x512.png"
+        />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+        />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"
@@ -63,12 +76,12 @@ export default function RootLayout({
         <meta name="theme-color" content="#FF8C00" />
       </head>
       <body className={inter.className}>
-        <ThemeProvider>
-          <SyncProvider>
+        <QueryProvider>
+          <ThemeProvider>
             {children}
             <Toaster />
-          </SyncProvider>
-        </ThemeProvider>
+          </ThemeProvider>
+        </QueryProvider>
       </body>
     </html>
   );

@@ -14,6 +14,7 @@ import {
     QrCode,
     Bell,
     RefreshCw,
+    Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/soli/app-shell';
@@ -21,92 +22,65 @@ import { GlassCard, SoliBadge } from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import { QRCodeSVG } from 'qrcode.react';
-import { getCurrentUser } from '@/lib/auth';
-import {
-    getDriverProfile,
-    getReservationsByDriver,
-    cancelReservation,
-} from '@/lib/profile';
-import { db, Reservation, Driver } from '@/lib/db';
 import { toast } from 'sonner';
+import {
+    useMyReservations,
+    useCancelReservation,
+    ReservationRemote,
+} from '@/lib/queries/reservas';
+import { createClient } from '@/lib/supabase/client';
 
 export default function ReservasPage() {
-    const [loading, setLoading] = React.useState(true);
-    const [driver, setDriver] = React.useState<Driver | null>(null);
-    const [reservations, setReservations] = React.useState<Reservation[]>([]);
-    const [refreshKey, setRefreshKey] = React.useState(0);
-    const seenConfirmedRef = React.useRef<Set<number>>(new Set());
-    const [expandedQR, setExpandedQR] = React.useState<number | null>(null);
-    const [waitingForDriver, setWaitingForDriver] = React.useState(false);
+    const { data: reservations = [], isLoading, refetch } = useMyReservations();
+    const cancelReservation = useCancelReservation();
 
-    // ===== CARGAR RESERVAS =====
+    const [driverProfile, setDriverProfile] = React.useState<any>(null);
+    const [expandedQR, setExpandedQR] = React.useState<string | null>(null);
+    const seenConfirmedRef = React.useRef<Set<string>>(new Set());
+
+    // Cargar driver profile para el QR
     React.useEffect(() => {
-        let mounted = true;
+        const loadDriver = async () => {
+            const supabase = createClient();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (!user) return;
 
-        const load = async () => {
-            const user = await getCurrentUser();
-            if (!user || user.role !== 'driver') {
-                if (mounted) setLoading(false);
-                return;
-            }
+            const { data } = await supabase
+                .from('driver_profiles')
+                .select('*')
+                .eq('user_id', user.id)
+                .maybeSingle();
 
-            const d = await getDriverProfile(user.id!);
-            if (!d || !d.id) {
-                // El driver aún no está. Esperar a que el sync lo baje.
-                if (mounted) {
-                    setWaitingForDriver(true);
-                    setTimeout(() => {
-                        if (mounted) setRefreshKey((k) => k + 1);
-                    }, 3000);
-                }
-                return;
-            }
-
-            if (mounted) {
-                setDriver(d);
-                setWaitingForDriver(false);
-            }
-
-            const res = await getReservationsByDriver(d.id);
-
-            if (mounted) {
-                res.forEach((r) => {
-                    if (
-                        r.status === 'confirmed' &&
-                        r.id &&
-                        !seenConfirmedRef.current.has(r.id)
-                    ) {
-                        seenConfirmedRef.current.add(r.id);
-                        toast.success(
-                            `¡Tu reserva para las ${r.slot} fue ACEPTADA! Ve a la solinera.`,
-                            { duration: 8000 }
-                        );
-                    }
-                });
-                setReservations(res);
-                setLoading(false);
-            }
+            setDriverProfile(data);
         };
+        loadDriver();
+    }, []);
 
-        load();
-        return () => {
-            mounted = false;
-        };
-    }, [refreshKey]);
-
-    // Refrescar cada 15s
+    // Notificar cuando una reserva pasa a 'confirmed'
     React.useEffect(() => {
-        if (!driver || !driver.id) return;
-        const interval = setInterval(() => {
-            setRefreshKey((k) => k + 1);
-        }, 15000);
-        return () => clearInterval(interval);
-    }, [driver]);
+        reservations.forEach((r) => {
+            if (
+                r.status === 'confirmed' &&
+                !seenConfirmedRef.current.has(r.id)
+            ) {
+                seenConfirmedRef.current.add(r.id);
+                toast.success(
+                    `¡Tu reserva para las ${r.slot} fue ACEPTADA! Ve a la solinera.`,
+                    { duration: 8000 }
+                );
+            }
+        });
+    }, [reservations]);
 
-    const handleCancel = async (id: number) => {
-        await cancelReservation(id);
-        toast.success('Reserva cancelada');
-        setRefreshKey((k) => k + 1);
+    const handleCancel = async (id: string) => {
+        try {
+            await cancelReservation.mutateAsync(id);
+            toast.success('Reserva cancelada');
+        } catch (err: any) {
+            toast.error(err.message || 'Error al cancelar');
+        }
     };
 
     const pending = reservations.filter((r) => r.status === 'pending');
@@ -115,41 +89,12 @@ export default function ReservasPage() {
         (r) => r.status === 'completed' || r.status === 'cancelled'
     );
 
-    if (loading) {
+    if (isLoading) {
         return (
             <AppShell>
                 <div className="flex h-96 flex-col items-center justify-center gap-4 text-muted-foreground">
-                    <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-                    <p>
-                        {waitingForDriver
-                            ? 'Sincronizando tu perfil...'
-                            : 'Cargando reservas...'}
-                    </p>
-                    {waitingForDriver && (
-                        <p className="text-xs">Esperando que llegue tu perfil desde el servidor</p>
-                    )}
-                </div>
-            </AppShell>
-        );
-    }
-
-    if (!driver) {
-        return (
-            <AppShell>
-                <div className="space-y-6">
-                    <PageHeader title="Mis Reservas" subtitle="No has iniciado sesión" />
-                    <GlassCard className="p-12 text-center">
-                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl gradient-tech text-white">
-                            <Car className="h-8 w-8" />
-                        </div>
-                        <h2 className="text-xl font-bold">No tienes perfil de conductor</h2>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            Ve a tu perfil para completarlo
-                        </p>
-                        <Button className="mt-6 gradient-tech text-white" asChild>
-                            <Link href="/perfil">Ir a mi perfil</Link>
-                        </Button>
-                    </GlassCard>
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p>Cargando reservas...</p>
                 </div>
             </AppShell>
         );
@@ -162,17 +107,13 @@ export default function ReservasPage() {
                     title="Mis Reservas"
                     subtitle="Aquí verás el estado de tus solicitudes de carga"
                     action={
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setRefreshKey((k) => k + 1)}
-                        >
+                        <Button variant="outline" size="sm" onClick={() => refetch()}>
                             <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
                         </Button>
                     }
                 />
 
-                {/* ===== RESERVAS CONFIRMADAS ===== */}
+                {/* Reservas confirmadas */}
                 {confirmed.length > 0 && (
                     <FadeIn delay={0.05}>
                         <div className="space-y-4">
@@ -210,7 +151,7 @@ export default function ReservasPage() {
                                                         <MapPin className="h-4 w-4" /> Solinera
                                                     </span>
                                                     <span className="font-semibold">
-                                                        {r.solineraName}
+                                                        {r.solinera?.name || 'Solinera'}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center justify-between">
@@ -237,8 +178,7 @@ export default function ReservasPage() {
                                                     </p>
                                                     <p className="mt-1 text-xs text-muted-foreground">
                                                         Si no llegas a la hora reservada, se le dará
-                                                        entrada a otro vehículo y tu reserva será
-                                                        cancelada. Por favor, sé puntual.
+                                                        entrada a otro vehículo.
                                                     </p>
                                                 </div>
                                             </div>
@@ -253,16 +193,17 @@ export default function ReservasPage() {
                                                         <QRCodeSVG
                                                             value={JSON.stringify({
                                                                 type: 'solinet-reservation',
-                                                                solineraId: r.solineraId,
-                                                                solineraName: r.solineraName,
-                                                                driverId: driver.id,
-                                                                driverName: driver.name,
-                                                                plate: driver.plate,
-                                                                car: driver.car,
+                                                                reservationId: r.id,
+                                                                shortCode: r.short_code,
+                                                                solineraId: r.solinera_id,
+                                                                solineraName: r.solinera?.name,
+                                                                driverId: r.driver_id,
+                                                                driverName: driverProfile?.name,
+                                                                plate: driverProfile?.plate,
+                                                                car: driverProfile?.car,
                                                                 slot: r.slot,
                                                                 amount: r.amount,
-                                                                method: r.method,
-                                                                ts: r.createdAt,
+                                                                method: r.payment_method,
                                                             })}
                                                             size={220}
                                                             level="M"
@@ -277,7 +218,7 @@ export default function ReservasPage() {
                                                             Código de reserva
                                                         </p>
                                                         <p className="mt-1 text-3xl font-bold tracking-[0.3em] text-primary">
-                                                            {r.shortCode}
+                                                            {r.short_code}
                                                         </p>
                                                         <p className="mt-1 text-xs text-muted-foreground">
                                                             Si el negocio no tiene cámara, dale este código
@@ -296,10 +237,9 @@ export default function ReservasPage() {
                                             ) : (
                                                 <Button
                                                     className="w-full gradient-solar text-white hover:opacity-90"
-                                                    onClick={() => setExpandedQR(r.id!)}
+                                                    onClick={() => setExpandedQR(r.id)}
                                                 >
-                                                    <QrCode className="mr-2 h-4 w-4" /> Mostrar mi QR y
-                                                    código
+                                                    <QrCode className="mr-2 h-4 w-4" /> Mostrar mi QR y código
                                                 </Button>
                                             )}
                                         </div>
@@ -310,7 +250,7 @@ export default function ReservasPage() {
                     </FadeIn>
                 )}
 
-                {/* ===== RESERVAS PENDIENTES ===== */}
+                {/* Reservas pendientes */}
                 {pending.length > 0 && (
                     <FadeIn delay={0.1}>
                         <GlassCard className="p-6">
@@ -319,9 +259,7 @@ export default function ReservasPage() {
                                     <Clock className="h-5 w-5 text-info" />
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-semibold">
-                                        Esperando aprobación
-                                    </h3>
+                                    <h3 className="text-lg font-semibold">Esperando aprobación</h3>
                                     <p className="text-xs text-muted-foreground">
                                         El negocio revisará tu solicitud en breve
                                     </p>
@@ -335,7 +273,9 @@ export default function ReservasPage() {
                                         className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-4"
                                     >
                                         <div>
-                                            <p className="font-medium">{r.solineraName}</p>
+                                            <p className="font-medium">
+                                                {r.solinera?.name || 'Solinera'}
+                                            </p>
                                             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                                                 <span className="flex items-center gap-1">
                                                     <Clock className="h-3 w-3" /> {r.slot}
@@ -352,7 +292,8 @@ export default function ReservasPage() {
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
-                                                onClick={() => r.id && handleCancel(r.id)}
+                                                onClick={() => handleCancel(r.id)}
+                                                disabled={cancelReservation.isPending}
                                             >
                                                 <X className="h-4 w-4" />
                                             </Button>
@@ -364,7 +305,7 @@ export default function ReservasPage() {
                     </FadeIn>
                 )}
 
-                {/* ===== SIN RESERVAS ===== */}
+                {/* Sin reservas */}
                 {pending.length === 0 && confirmed.length === 0 && (
                     <FadeIn delay={0.15}>
                         <GlassCard className="p-12 text-center">
@@ -384,7 +325,7 @@ export default function ReservasPage() {
                     </FadeIn>
                 )}
 
-                {/* ===== HISTORIAL ===== */}
+                {/* Historial */}
                 {history.length > 0 && (
                     <FadeIn delay={0.2}>
                         <GlassCard className="p-6">
@@ -400,7 +341,9 @@ export default function ReservasPage() {
                                         className="flex items-center justify-between rounded-xl border border-border/50 bg-card/20 p-3 opacity-70"
                                     >
                                         <div>
-                                            <p className="text-sm font-medium">{r.solineraName}</p>
+                                            <p className="text-sm font-medium">
+                                                {r.solinera?.name || 'Solinera'}
+                                            </p>
                                             <p className="text-xs text-muted-foreground">
                                                 {r.slot} · {r.amount} CUP
                                             </p>

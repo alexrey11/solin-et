@@ -29,19 +29,7 @@ import { StatusIndicator } from '@/components/soli/glass-card';
 import { getCurrentUser, logoutUser } from '@/lib/auth';
 import { User } from '@/lib/db';
 import { toast } from 'sonner';
-
-const businessNavItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/cola', label: 'Gestión de Cola', icon: Users },
-  { href: '/reportes', label: 'Reportes', icon: BarChart3 },
-  { href: '/configuracion', label: 'Configuración', icon: Settings },
-];
-
-const driverNavItems = [
-  { href: '/mapa', label: 'Mapa de Solineras', icon: Map },
-  { href: '/reservas', label: 'Mis Reservas', icon: Calendar },
-  { href: '/perfil', label: 'Mi Perfil', icon: UserIcon },
-];
+import { useSolineraReservations } from '@/lib/queries/reservas';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -49,6 +37,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [online, setOnline] = React.useState(true);
   const [user, setUser] = React.useState<User | null | undefined>(undefined);
+
+  // Badge de reservas pendientes desde Supabase
+  const { data: reservations = [] } = useSolineraReservations();
+  const pendingCount = reservations.filter(
+    (r) => r.status === 'pending'
+  ).length;
+
+  // Audio de notificación
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const lastIdsRef = React.useRef<Set<string>>(new Set());
+  const firstRunRef = React.useRef(true);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      audioRef.current = new Audio();
+      audioRef.current.volume = 0.7;
+    }
+  }, []);
+
+  // Detectar reservas nuevas para sonar
+  const pendingReservations = reservations.filter(
+    (r) => r.status === 'pending'
+  );
+
+  React.useEffect(() => {
+    const currentIds = new Set(pendingReservations.map((r) => r.id));
+
+    if (firstRunRef.current) {
+      lastIdsRef.current = currentIds;
+      firstRunRef.current = false;
+      return;
+    }
+
+    let hasNew = false;
+    currentIds.forEach((id) => {
+      if (!lastIdsRef.current.has(id)) {
+        hasNew = true;
+      }
+    });
+
+    if (hasNew && audioRef.current) {
+      audioRef.current.play().catch(() => { });
+    }
+
+    lastIdsRef.current = currentIds;
+  }, [pendingReservations]);
 
   React.useEffect(() => {
     const load = async () => {
@@ -84,7 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl overflow-hidden bg-white shadow-glow-orange">
+          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-glow-orange">
             <Image
               src="/logo.png"
               alt="SoliNet"
@@ -100,7 +134,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const mode = user.role === 'driver' ? 'driver' : 'business';
-  const navItems = mode === 'business' ? businessNavItems : driverNavItems;
+  const navItems =
+    mode === 'business'
+      ? [
+        { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        {
+          href: '/cola',
+          label: 'Gestión de Cola',
+          icon: Users,
+          badge: pendingCount,
+        },
+        { href: '/reportes', label: 'Reportes', icon: BarChart3 },
+        { href: '/configuracion', label: 'Configuración', icon: Settings },
+      ]
+      : [
+        { href: '/mapa', label: 'Mapa de Solineras', icon: Map },
+        { href: '/reservas', label: 'Mis Reservas', icon: Calendar },
+        { href: '/perfil', label: 'Mi Perfil', icon: UserIcon },
+      ];
+
   const initials = user.name
     .split(' ')
     .map((n) => n[0])
@@ -210,7 +262,12 @@ function SidebarContent({
 }: {
   pathname: string;
   mode: 'business' | 'driver';
-  navItems: typeof businessNavItems;
+  navItems: Array<{
+    href: string;
+    label: string;
+    icon: any;
+    badge?: number;
+  }>;
   onNavigate?: () => void;
   onLogout: () => void;
 }) {
@@ -255,12 +312,16 @@ function SidebarContent({
             >
               <item.icon className={cn('h-5 w-5', active && 'text-primary')} />
               {item.label}
-              {active && (
+              {item.badge != null && item.badge > 0 ? (
+                <span className="ml-auto flex h-5 min-w-[20px] animate-pulse items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-white">
+                  {item.badge}
+                </span>
+              ) : active ? (
                 <motion.div
                   layoutId="active-pill"
                   className="ml-auto h-1.5 w-1.5 rounded-full bg-primary"
                 />
-              )}
+              ) : null}
             </Link>
           );
         })}

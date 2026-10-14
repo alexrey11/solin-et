@@ -8,6 +8,10 @@ import {
   Zap,
   Users,
   Calendar,
+  Smartphone,
+  CreditCard,
+  Banknote,
+  Loader2,
 } from 'lucide-react';
 import {
   Area,
@@ -27,9 +31,13 @@ import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, StatCard, SoliBadge } from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Reservation } from '@/lib/db';
+import {
+  useSolineraActiva,
+} from '@/lib/queries/solinera';
+import {
+  useMonthTransactions,
+  useAllReservations,
+} from '@/lib/queries/dashboard';
 
 const tooltipStyle = {
   background: 'hsl(var(--popover))',
@@ -39,52 +47,30 @@ const tooltipStyle = {
   fontSize: '12px',
 };
 
-const pieColors = ['hsl(28 100% 50%)', 'hsl(217 91% 60%)', 'hsl(160 84% 39%)', 'hsl(45 100% 50%)'];
+const pieColors = [
+  'hsl(28 100% 50%)',
+  'hsl(217 91% 60%)',
+  'hsl(160 84% 39%)',
+];
 
 export default function ReportesPage() {
-  const reservations = useLiveQuery(
-    () => db.reservations.orderBy('createdAt').reverse().toArray(),
-    []
-  ) || [];
+  const { data: solinera, isLoading } = useSolineraActiva();
+  const { data: transactions = [] } = useMonthTransactions();
+  const { data: reservations = [] } = useAllReservations();
 
-  const transactions = useLiveQuery(
-    () => db.transactions.orderBy('createdAt').reverse().toArray(),
-    []
-  ) || [];
-
-  // ===== CÁLCULOS REALES =====
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayTs = today.getTime();
-
-  const weekAgo = todayTs - 7 * 24 * 60 * 60 * 1000;
-  const monthAgo = todayTs - 30 * 24 * 60 * 60 * 1000;
-
-  // Ingresos del mes (reservas completadas + transacciones)
-  const monthReservations = reservations.filter(
-    (r) => r.status === 'completed' && r.createdAt >= monthAgo
+  // ===== CÁLCULOS =====
+  const monthRevenue = transactions.reduce(
+    (sum: number, t: any) => sum + Number(t.amount || 0),
+    0
   );
-  const monthTransactions = transactions.filter(
-    (t) => t.createdAt >= monthAgo
+  const monthKwh = transactions.reduce(
+    (sum: number, t: any) => sum + Math.round(Number(t.amount || 0) / 5),
+    0
   );
-
-  const monthRevenue =
-    monthReservations.reduce((sum, r) => sum + r.amount, 0) +
-    monthTransactions.reduce((sum, t) => sum + t.amount, 0);
-
-  const monthKwh = Math.round(monthRevenue / 5);
-
-  const monthClients = new Set([
-    ...monthReservations.map((r) => r.driverId),
-    ...monthTransactions.map((t) => t.queueItemId),
-  ]).size;
-
+  const monthClients = new Set(transactions.map((t: any) => t.plate)).size;
   const avgTicket =
-    monthReservations.length + monthTransactions.length > 0
-      ? Math.round(
-        monthRevenue / (monthReservations.length + monthTransactions.length)
-      )
+    transactions.length > 0
+      ? Math.round(monthRevenue / transactions.length)
       : 0;
 
   // Datos por día (últimos 7 días)
@@ -99,25 +85,16 @@ export default function ReportesPage() {
       dayMap[dayName] = { ingresos: 0, kwh: 0 };
     }
 
-    reservations
-      .filter((r) => r.status === 'completed' && r.createdAt >= weekAgo)
-      .forEach((r) => {
-        const d = new Date(r.createdAt);
-        const dayName = days[d.getDay()];
-        if (dayMap[dayName]) {
-          dayMap[dayName].ingresos += r.amount;
-          dayMap[dayName].kwh += Math.round(r.amount / 5);
-        }
-      });
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
     transactions
-      .filter((t) => t.createdAt >= weekAgo)
-      .forEach((t) => {
-        const d = new Date(t.createdAt);
+      .filter((t: any) => new Date(t.created_at).getTime() >= weekAgo)
+      .forEach((t: any) => {
+        const d = new Date(t.created_at);
         const dayName = days[d.getDay()];
         if (dayMap[dayName]) {
-          dayMap[dayName].ingresos += t.amount;
-          dayMap[dayName].kwh += Math.round(t.amount / 5);
+          dayMap[dayName].ingresos += Number(t.amount || 0);
+          dayMap[dayName].kwh += Math.round(Number(t.amount || 0) / 5);
         }
       });
 
@@ -125,16 +102,20 @@ export default function ReportesPage() {
       day,
       ...data,
     }));
-  }, [reservations, transactions, weekAgo]);
+  }, [transactions]);
 
   // Métodos de pago
   const paymentMethods = React.useMemo(() => {
-    const methods = { transfermovil: 0, enzona: 0 };
-    monthReservations.forEach((r) => {
-      if (r.method === 'transfermovil') methods.transfermovil += r.amount;
-      if (r.method === 'enzona') methods.enzona += r.amount;
+    const methods = { transfermovil: 0, enzona: 0, efectivo: 0 };
+    transactions.forEach((t: any) => {
+      if (t.method === 'transfermovil') methods.transfermovil += Number(t.amount || 0);
+      if (t.method === 'enzona') methods.enzona += Number(t.amount || 0);
+      if (t.method === 'efectivo') methods.efectivo += Number(t.amount || 0);
     });
-    const total = methods.transfermovil + methods.enzona || 1;
+
+    const total =
+      methods.transfermovil + methods.enzona + methods.efectivo || 1;
+
     return [
       {
         name: 'Transfermóvil',
@@ -146,29 +127,84 @@ export default function ReportesPage() {
         value: Math.round((methods.enzona / total) * 100),
         amount: methods.enzona,
       },
+      {
+        name: 'Efectivo',
+        value: Math.round((methods.efectivo / total) * 100),
+        amount: methods.efectivo,
+      },
     ];
-  }, [monthReservations]);
+  }, [transactions]);
 
-  // Estados de las reservas
+  const hasPaymentData = paymentMethods.some((m) => m.amount > 0);
+
+  // Estados de reservas
   const statusData = React.useMemo(() => {
-    const pending = reservations.filter((r) => r.status === 'pending').length;
+    const pending = reservations.filter((r: any) => r.status === 'pending').length;
     const confirmed = reservations.filter(
-      (r) => r.status === 'confirmed'
+      (r: any) => r.status === 'confirmed'
     ).length;
     const completed = reservations.filter(
-      (r) => r.status === 'completed'
+      (r: any) => r.status === 'completed'
     ).length;
     const cancelled = reservations.filter(
-      (r) => r.status === 'cancelled'
+      (r: any) => r.status === 'cancelled'
     ).length;
 
     return [
-      { name: 'Completadas', value: completed },
-      { name: 'Confirmadas', value: confirmed },
-      { name: 'Pendientes', value: pending },
-      { name: 'Canceladas', value: cancelled },
+      { name: 'Completadas', value: completed, color: 'hsl(160 84% 39%)' },
+      { name: 'Confirmadas', value: confirmed, color: 'hsl(217 91% 60%)' },
+      { name: 'Pendientes', value: pending, color: 'hsl(45 100% 50%)' },
+      { name: 'Canceladas', value: cancelled, color: 'hsl(0 84% 60%)' },
     ].filter((s) => s.value > 0);
   }, [reservations]);
+
+  // Top clientes
+  const topClients = React.useMemo(() => {
+    const map = new Map<
+      string,
+      { plate: string; name: string; count: number; total: number }
+    >();
+
+    transactions.forEach((t: any) => {
+      const existing = map.get(t.plate);
+      if (existing) {
+        existing.count += 1;
+        existing.total += Number(t.amount || 0);
+      } else {
+        map.set(t.plate, {
+          plate: t.plate,
+          name: t.driver_name,
+          count: 1,
+          total: Number(t.amount || 0),
+        });
+      }
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+  }, [transactions]);
+
+  if (isLoading) {
+    return (
+      <AppShell>
+        <div className="flex h-96 flex-col items-center justify-center gap-4 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p>Cargando reportes...</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!solinera) {
+    return (
+      <AppShell>
+        <div className="flex h-96 items-center justify-center text-muted-foreground">
+          No tienes solinera configurada
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
@@ -177,13 +213,16 @@ export default function ReportesPage() {
           title="Reportes"
           subtitle="Analiza el rendimiento de tu solinera"
           action={
-            <Button variant="outline" size="sm">
-              <Download className="mr-2 h-4 w-4" /> Exportar
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.print()}
+            >
+              <Download className="mr-2 h-4 w-4" /> Exportar PDF
             </Button>
           }
         />
 
-        {/* Summary Stats */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Ingresos del mes"
@@ -225,7 +264,6 @@ export default function ReportesPage() {
           />
         </div>
 
-        {/* Charts */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <FadeIn delay={0.1} className="lg:col-span-2">
             <GlassCard className="p-6">
@@ -288,7 +326,7 @@ export default function ReportesPage() {
           <FadeIn delay={0.2}>
             <GlassCard className="p-6">
               <h3 className="mb-4 text-lg font-semibold">Métodos de pago</h3>
-              {paymentMethods.every((m) => m.value === 0) ? (
+              {!hasPaymentData ? (
                 <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
                   Sin datos de pagos aún
                 </div>
@@ -297,7 +335,7 @@ export default function ReportesPage() {
                   <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
                       <Pie
-                        data={paymentMethods}
+                        data={paymentMethods.filter((m) => m.amount > 0)}
                         cx="50%"
                         cy="50%"
                         innerRadius={50}
@@ -305,29 +343,38 @@ export default function ReportesPage() {
                         paddingAngle={3}
                         dataKey="value"
                       >
-                        {paymentMethods.map((_, i) => (
-                          <Cell key={i} fill={pieColors[i]} />
-                        ))}
+                        {paymentMethods
+                          .filter((m) => m.amount > 0)
+                          .map((_, i) => (
+                            <Cell key={i} fill={pieColors[i]} />
+                          ))}
                       </Pie>
                       <Tooltip contentStyle={tooltipStyle} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="space-y-2 pt-2">
-                    {paymentMethods.map((m, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between text-sm"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="h-3 w-3 rounded-full"
-                            style={{ background: pieColors[i] }}
-                          />
-                          <span>{m.name}</span>
+                    {paymentMethods
+                      .filter((m) => m.amount > 0)
+                      .map((m, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center justify-between text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="h-3 w-3 rounded-full"
+                              style={{ background: pieColors[i] }}
+                            />
+                            <span>{m.name}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-medium">{m.value}%</span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {m.amount.toLocaleString()} CUP
+                            </span>
+                          </div>
                         </div>
-                        <span className="font-medium">{m.value}%</span>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </>
               )}
@@ -363,7 +410,7 @@ export default function ReportesPage() {
                 <Tooltip contentStyle={tooltipStyle} />
                 <Bar
                   dataKey="kwh"
-                  fill="hsl(var(--chart-3, 200 100% 50%))"
+                  fill="hsl(28 100% 50%)"
                   radius={[8, 8, 0, 0]}
                   name="kWh"
                 />
@@ -372,34 +419,158 @@ export default function ReportesPage() {
           </GlassCard>
         </FadeIn>
 
-        {/* Estado de reservas */}
-        <FadeIn delay={0.4}>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <FadeIn delay={0.4}>
+            <GlassCard className="p-6">
+              <h3 className="mb-4 text-lg font-semibold">
+                Estado de reservas
+              </h3>
+              {statusData.length === 0 ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  Aún no hay reservas
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {statusData.map((s) => (
+                    <div
+                      key={s.name}
+                      className="rounded-xl border border-border/50 bg-card/30 p-4 text-center"
+                    >
+                      <p
+                        className="text-3xl font-bold"
+                        style={{ color: s.color }}
+                      >
+                        {s.value}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {s.name}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </GlassCard>
+          </FadeIn>
+
+          <FadeIn delay={0.5}>
+            <GlassCard className="p-6">
+              <h3 className="mb-4 text-lg font-semibold">
+                Top 5 clientes del mes
+              </h3>
+              {topClients.length === 0 ? (
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  Aún no hay clientes
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {topClients.map((c, i) => (
+                    <div
+                      key={c.plate}
+                      className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">
+                          {i + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{c.name}</p>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {c.plate} · {c.count} carga
+                            {c.count !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="font-semibold text-primary">
+                        {c.total.toLocaleString()} CUP
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </GlassCard>
+          </FadeIn>
+        </div>
+
+        <FadeIn delay={0.6}>
           <GlassCard className="p-6">
             <h3 className="mb-4 text-lg font-semibold">
-              Estado de reservas (total)
+              Historial del mes ({transactions.length})
             </h3>
-            {statusData.length === 0 ? (
-              <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-                Aún no hay reservas
+            {transactions.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No hay transacciones este mes
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {statusData.map((s, i) => (
-                  <div
-                    key={s.name}
-                    className="rounded-xl border border-border/50 bg-card/30 p-4 text-center"
-                  >
-                    <p
-                      className="text-3xl font-bold"
-                      style={{ color: pieColors[i % pieColors.length] }}
-                    >
-                      {s.value}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {s.name}
-                    </p>
-                  </div>
-                ))}
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                      <th className="pb-2 pr-4 font-medium">Fecha</th>
+                      <th className="pb-2 pr-4 font-medium">Cliente</th>
+                      <th className="pb-2 pr-4 font-medium">Matrícula</th>
+                      <th className="pb-2 pr-4 font-medium">Duración</th>
+                      <th className="pb-2 pr-4 font-medium">Método</th>
+                      <th className="pb-2 text-right font-medium">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.slice(0, 50).map((t: any) => (
+                      <tr
+                        key={t.id}
+                        className="border-b border-border/30 text-sm hover:bg-muted/30"
+                      >
+                        <td className="py-2 pr-4 font-mono text-xs">
+                          {new Date(t.created_at).toLocaleDateString('es-ES', {
+                            day: '2-digit',
+                            month: 'short',
+                          })}{' '}
+                          {new Date(t.created_at).toLocaleTimeString('es-ES', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="py-2 pr-4">{t.driver_name}</td>
+                        <td className="py-2 pr-4 font-mono text-xs">
+                          {t.plate}
+                        </td>
+                        <td className="py-2 pr-4 text-muted-foreground">
+                          {t.duration_min} min
+                        </td>
+                        <td className="py-2 pr-4">
+                          <SoliBadge
+                            variant={
+                              t.method === 'transfermovil'
+                                ? 'solar'
+                                : t.method === 'enzona'
+                                  ? 'info'
+                                  : 'default'
+                            }
+                          >
+                            {t.method === 'transfermovil' ? (
+                              <>
+                                <Smartphone className="h-3 w-3" />
+                                Transfermóvil
+                              </>
+                            ) : t.method === 'enzona' ? (
+                              <>
+                                <CreditCard className="h-3 w-3" />
+                                EnZona
+                              </>
+                            ) : (
+                              <>
+                                <Banknote className="h-3 w-3" />
+                                Efectivo
+                              </>
+                            )}
+                          </SoliBadge>
+                        </td>
+                        <td className="py-2 text-right font-semibold text-primary">
+                          {t.amount} CUP
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </GlassCard>
