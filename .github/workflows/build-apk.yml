@@ -1,4 +1,4 @@
-name: Build APK with PWABuilder
+name: Build Native APK with Capacitor
 
 on:
   push:
@@ -13,16 +13,43 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Build APK with PWABuilder
-      uses: pwa-builder/pwabuilder-action@v1
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        url: 'https://www.solinet.de5.net'
-        platform: 'android'
-        output_path: './apk-output'
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Setup Java 17
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build Next.js static export
+      run: npm run build
+
+    - name: Sync Capacitor
+      run: npx cap sync android
+
+    - name: Decode Keystore
+      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/solinet.keystore
+
+    - name: Build signed APK
+      working-directory: android
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleRelease \
+          -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/android/app/solinet.keystore \
+          -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
+          -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
+          -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: solinet-apk
-        path: './apk-output'
+        name: solinet-native-apk
+        path: android/app/build/outputs/apk/release/app-release.apk
         if-no-files-found: error
