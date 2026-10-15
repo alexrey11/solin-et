@@ -23,6 +23,7 @@ import {
   Calendar,
   User as UserIcon,
 } from 'lucide-react';
+import { useMutationState } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/theme-provider';
 import { StatusIndicator } from '@/components/soli/glass-card';
@@ -44,6 +45,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pendingCount = reservations.filter(
     (r) => r.status === 'pending'
   ).length;
+
+  // ✅ Mutations pendientes (offline)
+  const pausedMutations = useMutationState({
+    filters: { status: 'pending' },
+    select: (mutation) => mutation.state.isPaused,
+  });
+  const pendingMutationsCount = pausedMutations.filter(Boolean).length;
 
   // Audio de notificación
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -110,6 +118,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleLogout = async () => {
+    // ✅ Bloquear logout si hay mutations pendientes
+    if (pendingMutationsCount > 0) {
+      const confirmed = window.confirm(
+        `Tienes ${pendingMutationsCount} operación${pendingMutationsCount > 1 ? 'es' : ''
+        } pendiente${pendingMutationsCount > 1 ? 'es' : ''
+        } de sincronizar.\n\n¿Salir de todos modos? Se perderán si no se sincronizan antes.`
+      );
+      if (!confirmed) return;
+    }
+
     await logoutUser();
     toast.success('Sesión cerrada');
     router.push('/select-mode');

@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { getQueryClient, getPersister } from '@/lib/query-client';
 import { ThemeProvider } from '@/components/theme-provider';
+import { VersionCheck } from '@/components/version-check';
 import { Toaster } from '@/components/ui/sonner';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -20,6 +21,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
     const inner = (
         <ThemeProvider>
+            <VersionCheck />
             {children}
             <Toaster />
         </ThemeProvider>
