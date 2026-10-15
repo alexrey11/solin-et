@@ -93,7 +93,6 @@ export async function loginUser(
         .first();
 
     if (!localUser) {
-        // Crear usuario local si no existe
         const id = await db.users.add({
             supabaseId: data.user.id,
             role:
@@ -115,7 +114,24 @@ export async function loginUser(
 
 export async function logoutUser(): Promise<void> {
     const supabase = createClient();
-    await supabase.auth.signOut();
+
+    // ✅ Offline: signOut local (no revoca token en server, pero limpia storage)
+    // Online: signOut global (revoca token)
+    try {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            await supabase.auth.signOut({ scope: 'local' });
+        } else {
+            await supabase.auth.signOut();
+        }
+    } catch (err) {
+        // Si falla el signOut remoto, igual limpiamos local
+        console.warn('signOut falló (probablemente offline):', err);
+        try {
+            await supabase.auth.signOut({ scope: 'local' });
+        } catch {
+            // Ignorar
+        }
+    }
 
     // ⚠️ CRÍTICO: Limpiar TODOS los datos del usuario anterior
     await db.users.clear();
@@ -131,20 +147,36 @@ export async function logoutUser(): Promise<void> {
     }
 }
 
-// ===== SESIÓN ACTUAL =====
+// ===== SESIÓN ACTUAL (OFFLINE-SAFE) =====
 
+/**
+ * ✅ Lee la sesión del storage local (no llama al server).
+ * Funciona offline. Devuelve el User local o null.
+ *
+ * ⚠️ NO uses supabase.auth.getUser() aquí — ese llama al server y falla offline.
+ */
 export async function getCurrentUser(): Promise<User | null> {
     const supabase = createClient();
 
+    // ✅ getSession() lee del localStorage/IndexedDB — no requiere red
     const {
-        data: { user },
-    } = await supabase.auth.getUser();
+        data: { session },
+        error,
+    } = await supabase.auth.getSession();
 
-    if (!user) {
-        // Si no hay usuario en Supabase, limpiar TODO local
-        await db.users.clear();
+    if (error || !session?.user) {
+        // Si estamos online y de verdad no hay sesión, limpiar local.
+        // Si estamos offline, NO limpiar — puede ser un fallo transitorio.
+        const isOnline =
+            typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+        if (isOnline) {
+            await db.users.clear();
+        }
         return null;
     }
+
+    const user = session.user;
 
     // Buscar SOLO por supabaseId
     let localUser = await db.users
@@ -153,6 +185,7 @@ export async function getCurrentUser(): Promise<User | null> {
         .first();
 
     if (!localUser) {
+        // Si no existe localmente, crearlo desde el JWT (no hace red)
         const id = await db.users.add({
             supabaseId: user.id,
             role: (user.user_metadata?.role as 'driver' | 'business') || 'driver',

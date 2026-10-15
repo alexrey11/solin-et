@@ -33,9 +33,7 @@ import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
 import { exportReportPDF } from '@/lib/export-pdf';
 import { toast } from 'sonner';
-import {
-  useSolineraActiva,
-} from '@/lib/queries/solinera';
+import { useSolineraActiva } from '@/lib/queries/solinera';
 import {
   useMonthTransactions,
   useAllReservations,
@@ -218,6 +216,7 @@ export default function ReportesPage() {
             <Button
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto"
               onClick={async () => {
                 if (!solinera) return;
                 try {
@@ -257,7 +256,8 @@ export default function ReportesPage() {
           }
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <StatCard
             label="Ingresos del mes"
             value={monthRevenue.toLocaleString()}
@@ -298,82 +298,88 @@ export default function ReportesPage() {
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Ingresos + Métodos de pago */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
           <FadeIn delay={0.1} className="lg:col-span-2">
-            <GlassCard className="p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold">
+            <GlassCard className="p-4 sm:p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-semibold sm:text-lg">
                   Ingresos últimos 7 días
                 </h3>
                 <SoliBadge variant="solar">
                   <Calendar className="h-3 w-3" /> Esta semana
                 </SoliBadge>
               </div>
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={dailyData}>
-                  <defs>
-                    <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="0%"
-                        stopColor="hsl(var(--primary))"
-                        stopOpacity={0.4}
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor="hsl(var(--primary))"
-                        stopOpacity={0}
-                      />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="hsl(var(--border))"
-                    opacity={0.3}
-                  />
-                  <XAxis
-                    dataKey="day"
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Area
-                    type="monotone"
-                    dataKey="ingresos"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    fill="url(#incGrad)"
-                    name="Ingresos (CUP)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <div className="-ml-2 sm:ml-0">
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={dailyData}>
+                    <defs>
+                      <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor="hsl(var(--primary))"
+                          stopOpacity={0.4}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="hsl(var(--primary))"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="hsl(var(--border))"
+                      opacity={0.3}
+                    />
+                    <XAxis
+                      dataKey="day"
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                      width={40}
+                    />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Area
+                      type="monotone"
+                      dataKey="ingresos"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      fill="url(#incGrad)"
+                      name="Ingresos (CUP)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </GlassCard>
           </FadeIn>
 
           <FadeIn delay={0.2}>
-            <GlassCard className="p-6">
-              <h3 className="mb-4 text-lg font-semibold">Métodos de pago</h3>
+            <GlassCard className="p-4 sm:p-6">
+              <h3 className="mb-4 text-base font-semibold sm:text-lg">
+                Métodos de pago
+              </h3>
               {!hasPaymentData ? (
                 <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
                   Sin datos de pagos aún
                 </div>
               ) : (
                 <>
-                  <ResponsiveContainer width="100%" height={200}>
+                  <ResponsiveContainer width="100%" height={180}>
                     <PieChart>
                       <Pie
                         data={paymentMethods.filter((m) => m.amount > 0)}
                         cx="50%"
                         cy="50%"
-                        innerRadius={50}
-                        outerRadius={80}
+                        innerRadius={45}
+                        outerRadius={70}
                         paddingAngle={3}
                         dataKey="value"
                       >
@@ -386,24 +392,24 @@ export default function ReportesPage() {
                       <Tooltip contentStyle={tooltipStyle} />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="space-y-2 pt-2">
+                  <div className="space-y-2 pt-3">
                     {paymentMethods
                       .filter((m) => m.amount > 0)
                       .map((m, i) => (
                         <div
                           key={i}
-                          className="flex items-center justify-between text-sm"
+                          className="flex items-center justify-between gap-2 text-sm"
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
                             <div
-                              className="h-3 w-3 rounded-full"
+                              className="h-3 w-3 shrink-0 rounded-full"
                               style={{ background: pieColors[i] }}
                             />
-                            <span>{m.name}</span>
+                            <span className="truncate">{m.name}</span>
                           </div>
-                          <div className="text-right">
+                          <div className="flex shrink-0 items-baseline gap-2">
                             <span className="font-medium">{m.value}%</span>
-                            <span className="ml-2 text-xs text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {m.amount.toLocaleString()} CUP
                             </span>
                           </div>
@@ -416,47 +422,52 @@ export default function ReportesPage() {
           </FadeIn>
         </div>
 
+        {/* Energía vendida */}
         <FadeIn delay={0.3}>
-          <GlassCard className="p-6">
-            <h3 className="mb-4 text-lg font-semibold">
+          <GlassCard className="p-4 sm:p-6">
+            <h3 className="mb-4 text-base font-semibold sm:text-lg">
               Energía vendida (kWh)
             </h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={dailyData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                  opacity={0.3}
-                />
-                <XAxis
-                  dataKey="day"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip contentStyle={tooltipStyle} />
-                <Bar
-                  dataKey="kwh"
-                  fill="hsl(28 100% 50%)"
-                  radius={[8, 8, 0, 0]}
-                  name="kWh"
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="-ml-2 sm:ml-0">
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={dailyData}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border))"
+                    opacity={0.3}
+                  />
+                  <XAxis
+                    dataKey="day"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    width={40}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar
+                    dataKey="kwh"
+                    fill="hsl(28 100% 50%)"
+                    radius={[8, 8, 0, 0]}
+                    name="kWh"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </GlassCard>
         </FadeIn>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Estados + Top clientes */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
           <FadeIn delay={0.4}>
-            <GlassCard className="p-6">
-              <h3 className="mb-4 text-lg font-semibold">
+            <GlassCard className="p-4 sm:p-6">
+              <h3 className="mb-4 text-base font-semibold sm:text-lg">
                 Estado de reservas
               </h3>
               {statusData.length === 0 ? (
@@ -464,14 +475,14 @@ export default function ReportesPage() {
                   Aún no hay reservas
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   {statusData.map((s) => (
                     <div
                       key={s.name}
-                      className="rounded-xl border border-border/50 bg-card/30 p-4 text-center"
+                      className="rounded-xl border border-border/50 bg-card/30 p-3 text-center sm:p-4"
                     >
                       <p
-                        className="text-3xl font-bold"
+                        className="text-2xl font-bold sm:text-3xl"
                         style={{ color: s.color }}
                       >
                         {s.value}
@@ -487,8 +498,8 @@ export default function ReportesPage() {
           </FadeIn>
 
           <FadeIn delay={0.5}>
-            <GlassCard className="p-6">
-              <h3 className="mb-4 text-lg font-semibold">
+            <GlassCard className="p-4 sm:p-6">
+              <h3 className="mb-4 text-base font-semibold sm:text-lg">
                 Top 5 clientes del mes
               </h3>
               {topClients.length === 0 ? (
@@ -496,26 +507,28 @@ export default function ReportesPage() {
                   Aún no hay clientes
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {topClients.map((c, i) => (
                     <div
                       key={c.plate}
-                      className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-3"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-card/30 p-3"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary">
                           {i + 1}
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">{c.name}</p>
-                          <p className="font-mono text-xs text-muted-foreground">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {c.name}
+                          </p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">
                             {c.plate} · {c.count} carga
                             {c.count !== 1 ? 's' : ''}
                           </p>
                         </div>
                       </div>
-                      <p className="font-semibold text-primary">
-                        {c.total.toLocaleString()} CUP
+                      <p className="shrink-0 text-sm font-semibold text-primary">
+                        {c.total.toLocaleString()}
                       </p>
                     </div>
                   ))}
@@ -525,87 +538,146 @@ export default function ReportesPage() {
           </FadeIn>
         </div>
 
+        {/* Historial del mes */}
         <FadeIn delay={0.6}>
-          <GlassCard className="p-6">
-            <h3 className="mb-4 text-lg font-semibold">
-              Historial del mes ({transactions.length})
-            </h3>
+          <GlassCard className="p-4 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-semibold sm:text-lg">
+                Historial del mes ({transactions.length})
+              </h3>
+            </div>
+
             {transactions.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
                 No hay transacciones este mes
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
-                      <th className="pb-2 pr-4 font-medium">Fecha</th>
-                      <th className="pb-2 pr-4 font-medium">Cliente</th>
-                      <th className="pb-2 pr-4 font-medium">Matrícula</th>
-                      <th className="pb-2 pr-4 font-medium">Duración</th>
-                      <th className="pb-2 pr-4 font-medium">Método</th>
-                      <th className="pb-2 text-right font-medium">Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactions.slice(0, 50).map((t: any) => (
-                      <tr
-                        key={t.id}
-                        className="border-b border-border/30 text-sm hover:bg-muted/30"
-                      >
-                        <td className="py-2 pr-4 font-mono text-xs">
+              <>
+                {/* Desktop: tabla */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                        <th className="pb-2 pr-4 font-medium">Fecha</th>
+                        <th className="pb-2 pr-4 font-medium">Cliente</th>
+                        <th className="pb-2 pr-4 font-medium">Matrícula</th>
+                        <th className="pb-2 pr-4 font-medium">Duración</th>
+                        <th className="pb-2 pr-4 font-medium">Método</th>
+                        <th className="pb-2 text-right font-medium">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.slice(0, 50).map((t: any) => (
+                        <tr
+                          key={t.id}
+                          className="border-b border-border/30 text-sm hover:bg-muted/30"
+                        >
+                          <td className="py-2 pr-4 font-mono text-xs">
+                            {new Date(t.created_at).toLocaleDateString(
+                              'es-ES',
+                              { day: '2-digit', month: 'short' }
+                            )}{' '}
+                            {new Date(t.created_at).toLocaleTimeString(
+                              'es-ES',
+                              { hour: '2-digit', minute: '2-digit' }
+                            )}
+                          </td>
+                          <td className="py-2 pr-4">{t.driver_name}</td>
+                          <td className="py-2 pr-4 font-mono text-xs">
+                            {t.plate}
+                          </td>
+                          <td className="py-2 pr-4 text-muted-foreground">
+                            {t.duration_min} min
+                          </td>
+                          <td className="py-2 pr-4">
+                            <SoliBadge
+                              variant={
+                                t.method === 'transfermovil'
+                                  ? 'solar'
+                                  : t.method === 'enzona'
+                                    ? 'info'
+                                    : 'default'
+                              }
+                            >
+                              {t.method === 'transfermovil' ? (
+                                <>
+                                  <Smartphone className="h-3 w-3" />
+                                  Transfermóvil
+                                </>
+                              ) : t.method === 'enzona' ? (
+                                <>
+                                  <CreditCard className="h-3 w-3" />
+                                  EnZona
+                                </>
+                              ) : (
+                                <>
+                                  <Banknote className="h-3 w-3" />
+                                  Efectivo
+                                </>
+                              )}
+                            </SoliBadge>
+                          </td>
+                          <td className="py-2 text-right font-semibold text-primary">
+                            {t.amount} CUP
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile: cards */}
+                <div className="space-y-2.5 md:hidden">
+                  {transactions.slice(0, 50).map((t: any) => (
+                    <div
+                      key={t.id}
+                      className="rounded-xl border border-border/50 bg-card/30 p-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">
                           {new Date(t.created_at).toLocaleDateString('es-ES', {
                             day: '2-digit',
                             month: 'short',
                           })}{' '}
+                          ·{' '}
                           {new Date(t.created_at).toLocaleTimeString('es-ES', {
                             hour: '2-digit',
                             minute: '2-digit',
                           })}
-                        </td>
-                        <td className="py-2 pr-4">{t.driver_name}</td>
-                        <td className="py-2 pr-4 font-mono text-xs">
-                          {t.plate}
-                        </td>
-                        <td className="py-2 pr-4 text-muted-foreground">
-                          {t.duration_min} min
-                        </td>
-                        <td className="py-2 pr-4">
-                          <SoliBadge
-                            variant={
-                              t.method === 'transfermovil'
-                                ? 'solar'
-                                : t.method === 'enzona'
-                                  ? 'info'
-                                  : 'default'
-                            }
-                          >
-                            {t.method === 'transfermovil' ? (
-                              <>
-                                <Smartphone className="h-3 w-3" />
-                                Transfermóvil
-                              </>
-                            ) : t.method === 'enzona' ? (
-                              <>
-                                <CreditCard className="h-3 w-3" />
-                                EnZona
-                              </>
-                            ) : (
-                              <>
-                                <Banknote className="h-3 w-3" />
-                                Efectivo
-                              </>
-                            )}
-                          </SoliBadge>
-                        </td>
-                        <td className="py-2 text-right font-semibold text-primary">
+                        </span>
+                        <SoliBadge
+                          variant={
+                            t.method === 'transfermovil'
+                              ? 'solar'
+                              : t.method === 'enzona'
+                                ? 'info'
+                                : 'default'
+                          }
+                        >
+                          {t.method === 'transfermovil'
+                            ? 'Transfermóvil'
+                            : t.method === 'enzona'
+                              ? 'EnZona'
+                              : 'Efectivo'}
+                        </SoliBadge>
+                      </div>
+                      <div className="flex items-end justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {t.driver_name}
+                          </p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            {t.plate} · {t.duration_min} min
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-base font-bold text-primary">
                           {t.amount} CUP
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </GlassCard>
         </FadeIn>

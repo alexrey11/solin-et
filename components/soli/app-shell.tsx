@@ -11,12 +11,9 @@ import {
   Map,
   BarChart3,
   Settings,
-  Sun,
   Zap,
   Menu,
   X,
-  Wifi,
-  WifiOff,
   Moon,
   Lightbulb,
   LogOut,
@@ -28,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/theme-provider';
 import { StatusIndicator } from '@/components/soli/glass-card';
 import { getCurrentUser, logoutUser } from '@/lib/auth';
+import { createClient } from '@/lib/supabase/client';
 import { User } from '@/lib/db';
 import { toast } from 'sonner';
 import { useSolineraReservations } from '@/lib/queries/reservas';
@@ -65,7 +63,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Detectar reservas nuevas para sonar
   const pendingReservations = reservations.filter(
     (r) => r.status === 'pending'
   );
@@ -93,18 +90,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     lastIdsRef.current = currentIds;
   }, [pendingReservations]);
 
+  // ===== CARGA INICIAL DEL USUARIO (OFFLINE-SAFE) =====
   React.useEffect(() => {
+    let cancelled = false;
+
     const load = async () => {
       const u = await getCurrentUser();
+      if (cancelled) return;
+
       if (!u) {
+        // ⚠️ Offline: NO redirigir. Puede que la sesión esté guardada
+        // y solo falle la lectura. Esperar a reconectar.
+        const isOnline =
+          typeof navigator !== 'undefined' ? navigator.onLine : true;
+        if (!isOnline) {
+          // Dejamos user en undefined → pantalla de carga
+          return;
+        }
+        // Online y sin sesión → redirigir
         router.replace('/select-mode');
         return;
       }
+
       setUser(u);
     };
+
     load();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
+  // ===== REINTENTAR CARGA AL RECONECTAR =====
+  React.useEffect(() => {
+    if (!online || user) return;
+
+    // Acabamos de recuperar conexión y aún no tenemos user → reintentar
+    const reload = async () => {
+      const u = await getCurrentUser();
+      if (u) {
+        setUser(u);
+      } else {
+        router.replace('/select-mode');
+      }
+    };
+    reload();
+  }, [online, user, router]);
+
+  // ===== DETECTAR CONEXIÓN =====
   React.useEffect(() => {
     const handleOnline = () => setOnline(true);
     const handleOffline = () => setOnline(false);
@@ -117,8 +151,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // ===== ESCUCHAR CAMBIOS DE SESIÓN (SIGNED_OUT REAL) =====
+  React.useEffect(() => {
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      // ⚠️ Solo reaccionar a SIGNED_OUT real.
+      // NO reaccionar a TOKEN_REFRESHED / USER_UPDATED / INITIAL_SESSION:
+      // esos pueden dispararse sin conexión y botarían al usuario.
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        router.replace('/select-mode');
+      }
+      // SIGNED_IN: el useEffect de carga ya se encarga
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
   const handleLogout = async () => {
-    // ✅ Bloquear logout si hay mutations pendientes
     if (pendingMutationsCount > 0) {
       const confirmed = window.confirm(
         `Tienes ${pendingMutationsCount} operación${pendingMutationsCount > 1 ? 'es' : ''
@@ -133,7 +185,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push('/select-mode');
   };
 
-  if (user === undefined || user === null) {
+  // ===== PANTALLA DE CARGA =====
+  // user === undefined → aún no sabemos
+  // user === null → sesión cerrada (redirigiendo)
+  if (user === undefined) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -146,10 +201,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="h-full w-full object-contain"
             />
           </div>
-          <p className="text-sm text-muted-foreground">Cargando...</p>
+          <p className="text-sm text-muted-foreground">
+            {online ? 'Cargando...' : 'Sin conexión — esperando red...'}
+          </p>
         </div>
       </div>
     );
+  }
+
+  if (user === null) {
+    // Ya se disparó el redirect; no renderizar nada
+    return null;
   }
 
   const mode = user.role === 'driver' ? 'driver' : 'business';

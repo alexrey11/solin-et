@@ -91,7 +91,7 @@ function CountdownTimer({
   const isDone = remaining === 0;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <Timer
         className={cn(
           'h-4 w-4',
@@ -104,7 +104,7 @@ function CountdownTimer({
       />
       <span
         className={cn(
-          'font-mono font-semibold',
+          'font-mono text-sm font-semibold',
           isDone
             ? 'text-primary'
             : isLow
@@ -256,7 +256,6 @@ export default function ColaPage() {
       },
     });
 
-    // Feedback inmediato
     toast.success('Reserva aceptada. Conductor notificado.');
   };
 
@@ -322,7 +321,6 @@ export default function ColaPage() {
 
     const estimated = calculateAmount(point.power, duration, point.pricePerKwh);
 
-    // ✅ Offline-first
     startCharge.mutate(
       {
         queueItemId: startItem.id,
@@ -341,7 +339,6 @@ export default function ColaPage() {
       }
     );
 
-    // Feedback inmediato
     toast.success(`Carga iniciada en ${selectedPoint} (${point.power}kW)`);
     setStartOpen(false);
     setStartItem(null);
@@ -388,7 +385,6 @@ export default function ColaPage() {
       );
     }
 
-    // ✅ Offline-first: fire and forget
     completeCharge.mutate(
       {
         queueItemId: collectItem.id,
@@ -409,7 +405,6 @@ export default function ColaPage() {
       }
     );
 
-    // Feedback inmediato
     toast.success(`Cobro registrado: ${finalAmount} CUP (${collectMethod})`);
     setCollectOpen(false);
     setCollectItem(null);
@@ -432,7 +427,6 @@ export default function ColaPage() {
       return;
     }
 
-    // ✅ Offline-first
     addToQueue.mutate(
       {
         name: newName.trim(),
@@ -451,7 +445,6 @@ export default function ColaPage() {
       }
     );
 
-    // Feedback inmediato
     toast.success(`${newName.trim()} añadido a la cola`);
     resetAddForm();
     setAddOpen(false);
@@ -525,8 +518,10 @@ export default function ColaPage() {
             title="Gestión de Cola"
             subtitle="Configura tu solinera primero"
           />
-          <GlassCard className="p-12 text-center">
-            <h2 className="text-xl font-bold">No tienes solinera configurada</h2>
+          <GlassCard className="p-8 text-center sm:p-12">
+            <h2 className="text-lg font-bold sm:text-xl">
+              No tienes solinera configurada
+            </h2>
             <Button className="mt-4 gradient-solar" asChild>
               <Link href="/onboarding">Configurar ahora</Link>
             </Button>
@@ -538,23 +533,31 @@ export default function ColaPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="space-y-5 sm:space-y-6">
         <PageHeader
           title="Gestión de Cola"
           subtitle="Cola en vivo, cobros y registro del día"
           action={
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" asChild>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 sm:flex-none"
+                asChild
+              >
                 <Link href="/escanear">
-                  <QrCode className="mr-2 h-4 w-4" /> Escanear QR
+                  <QrCode className="mr-2 h-4 w-4" />
+                  <span className="hidden xs:inline sm:inline">Escanear</span>
+                  <span className="inline xs:hidden sm:hidden">QR</span>
                 </Link>
               </Button>
               <Button
-                className="gradient-solar text-white hover:opacity-90"
+                className="flex-1 gradient-solar text-white hover:opacity-90 sm:flex-none"
                 size="sm"
                 onClick={() => setAddOpen(true)}
               >
-                <Plus className="mr-2 h-4 w-4" /> Añadir vehículo
+                <Plus className="mr-2 h-4 w-4" />
+                <span>Añadir</span>
               </Button>
             </div>
           }
@@ -562,44 +565,50 @@ export default function ColaPage() {
 
         {/* Ingresos del día */}
         <FadeIn delay={0.03}>
-          <GlassCard className="border-primary/30 bg-gradient-to-br from-primary/10 to-transparent p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl gradient-solar text-white shadow-glow-orange">
-                  <TrendingUp className="h-7 w-7" />
+          <GlassCard className="border-primary/30 bg-gradient-to-br from-primary/10 to-transparent p-4 sm:p-5">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl gradient-solar text-white shadow-glow-orange sm:h-14 sm:w-14">
+                  <TrendingUp className="h-6 w-6 sm:h-7 sm:w-7" />
                 </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground sm:text-xs">
                     Ingresos de hoy
                   </p>
-                  <p className="text-3xl font-bold text-primary">
+                  <p className="text-2xl font-bold text-primary sm:text-3xl">
                     {todayRevenue.toLocaleString()}{' '}
-                    <span className="text-base font-medium text-muted-foreground">
+                    <span className="text-sm font-medium text-muted-foreground sm:text-base">
                       CUP
                     </span>
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground sm:text-xs">
                     {todayTransactions.length} carga
                     {todayTransactions.length !== 1 ? 's' : ''} completada
                     {todayTransactions.length !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3 sm:gap-6">
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-border/30 bg-card/30 p-3 sm:gap-6 sm:border-0 sm:bg-transparent sm:p-0">
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-success">{charging}</p>
+                  <p className="text-xl font-bold text-success sm:text-2xl">
+                    {charging}
+                  </p>
                   <p className="text-[10px] uppercase text-muted-foreground">
                     Cargando
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-warning">{waiting}</p>
+                  <p className="text-xl font-bold text-warning sm:text-2xl">
+                    {waiting}
+                  </p>
                   <p className="text-[10px] uppercase text-muted-foreground">
                     En espera
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-primary">{done}</p>
+                  <p className="text-xl font-bold text-primary sm:text-2xl">
+                    {done}
+                  </p>
                   <p className="text-[10px] uppercase text-muted-foreground">
                     Completados
                   </p>
@@ -612,12 +621,12 @@ export default function ColaPage() {
         {/* Solicitudes de reserva */}
         {pendingReservations.length > 0 && (
           <FadeIn delay={0.05}>
-            <GlassCard className="border-info/30 bg-info/5 p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Calendar className="h-5 w-5 text-info" />
-                  <h3 className="text-lg font-semibold">
-                    Solicitudes de reserva
+            <GlassCard className="border-info/30 bg-info/5 p-4 sm:p-6">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Calendar className="h-5 w-5 shrink-0 text-info" />
+                  <h3 className="text-base font-semibold sm:text-lg">
+                    Solicitudes
                   </h3>
                   <SoliBadge variant="info">
                     {pendingReservations.length}
@@ -632,17 +641,17 @@ export default function ColaPage() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    className="rounded-xl border border-border/50 bg-card/40 p-3 sm:p-4"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-tech text-white">
-                        <Car className="h-6 w-6" />
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl gradient-tech text-white sm:h-12 sm:w-12">
+                        <Car className="h-5 w-5 sm:h-6 sm:w-6" />
                       </div>
-                      <div>
-                        <p className="font-medium">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">
                           {r.driver_profile?.name || 'Conductor'}
                         </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" /> {r.slot}
                           </span>
@@ -666,18 +675,18 @@ export default function ColaPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="mt-3 flex items-center gap-2 sm:mt-0 sm:justify-end">
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive sm:flex-none"
                         onClick={() => handleRejectReservation(r)}
                       >
                         <X className="mr-1 h-4 w-4" /> Rechazar
                       </Button>
                       <Button
                         size="sm"
-                        className="gradient-solar text-white hover:opacity-90"
+                        className="flex-1 gradient-solar text-white hover:opacity-90 sm:flex-none"
                         onClick={() => handleAcceptReservation(r)}
                       >
                         <Check className="mr-1 h-4 w-4" /> Aceptar
@@ -693,11 +702,13 @@ export default function ColaPage() {
         {/* Esperando llegada */}
         {confirmedReservations.length > 0 && (
           <FadeIn delay={0.08}>
-            <GlassCard className="border-success/30 bg-success/5 p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Clock className="h-5 w-5 text-success" />
-                  <h3 className="text-lg font-semibold">Esperando llegada</h3>
+            <GlassCard className="border-success/30 bg-success/5 p-4 sm:p-6">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Clock className="h-5 w-5 shrink-0 text-success" />
+                  <h3 className="text-base font-semibold sm:text-lg">
+                    Esperando llegada
+                  </h3>
                   <SoliBadge variant="success">
                     {confirmedReservations.length}
                   </SoliBadge>
@@ -711,17 +722,17 @@ export default function ColaPage() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    className="rounded-xl border border-border/50 bg-card/40 p-3 sm:p-4"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-solar text-white">
-                        <Check className="h-6 w-6" />
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl gradient-solar text-white sm:h-12 sm:w-12">
+                        <Check className="h-5 w-5 sm:h-6 sm:w-6" />
                       </div>
-                      <div>
-                        <p className="font-medium">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">
                           {r.driver_profile?.name || 'Conductor'}
                         </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" /> {r.slot}
                           </span>
@@ -737,22 +748,22 @@ export default function ColaPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="mt-3 flex items-center gap-2">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="text-destructive"
+                        className="flex-1 text-destructive sm:flex-none"
                         onClick={() => handleRejectReservation(r)}
                       >
                         <X className="mr-1 h-4 w-4" /> No llegó
                       </Button>
                       <Button
                         size="sm"
-                        className="gradient-solar text-white hover:opacity-90"
+                        className="flex-1 gradient-solar text-white hover:opacity-90 sm:flex-none"
                         asChild
                       >
                         <Link href="/escanear">
-                          <QrCode className="mr-1 h-4 w-4" /> Escanear llegada
+                          <QrCode className="mr-1 h-4 w-4" /> Escanear
                         </Link>
                       </Button>
                     </div>
@@ -765,8 +776,8 @@ export default function ColaPage() {
 
         {/* Puntos de carga */}
         <FadeIn delay={0.15}>
-          <GlassCard className="p-5">
-            <div className="mb-3 flex items-center justify-between">
+          <GlassCard className="p-4 sm:p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-muted-foreground">
                 Puntos de carga
               </h3>
@@ -774,7 +785,7 @@ export default function ColaPage() {
                 {freePoints.length} de {CHARGE_POINTS.length} libres
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
               {chargePointsWithStatus.map((cp) => (
                 <div
                   key={cp.id}
@@ -785,24 +796,26 @@ export default function ColaPage() {
                       : 'border-border/50 bg-card/30'
                   )}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-1">
                     <div
                       className={cn(
-                        'flex h-8 w-8 items-center justify-center rounded-lg',
+                        'flex h-7 w-7 items-center justify-center rounded-lg sm:h-8 sm:w-8',
                         cp.active
                           ? 'bg-success/15 text-success'
                           : 'bg-muted text-muted-foreground'
                       )}
                     >
-                      <Zap className="h-4 w-4" />
+                      <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </div>
-                    <span className="text-xs font-mono text-primary">
-                      {cp.pricePerKwh} CUP/kWh
+                    <span className="text-[10px] font-mono text-primary sm:text-xs">
+                      {cp.pricePerKwh} CUP
                     </span>
                   </div>
                   <div>
-                    <p className="text-sm font-medium">{cp.label}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="truncate text-xs font-medium sm:text-sm">
+                      {cp.label}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">
                       {cp.power} kW · {cp.active ? 'Ocupado' : 'Libre'}
                     </p>
                   </div>
@@ -814,10 +827,12 @@ export default function ColaPage() {
 
         {/* Lista de vehículos */}
         <FadeIn delay={0.2}>
-          <GlassCard className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h3 className="text-lg font-semibold">Vehículos en cola</h3>
+          <GlassCard className="p-4 sm:p-6">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <h3 className="text-base font-semibold sm:text-lg">
+                  Vehículos en cola
+                </h3>
                 <StatusIndicator online label="En vivo" />
               </div>
             </div>
@@ -843,7 +858,7 @@ export default function ColaPage() {
                         exit={{ opacity: 0, x: -100 }}
                         transition={{ delay: idx * 0.05 }}
                         className={cn(
-                          'rounded-xl border bg-card/30 p-4 transition-all',
+                          'rounded-xl border bg-card/30 p-3 transition-all sm:p-4',
                           item.status === 'charging'
                             ? 'border-success/40 bg-success/5'
                             : item.status === 'done'
@@ -851,42 +866,45 @@ export default function ColaPage() {
                               : 'border-border/50'
                         )}
                       >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary">
-                              <Car className="h-6 w-6 text-muted-foreground" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium">{item.name}</p>
-                                <SoliBadge
-                                  variant={
-                                    item.status === 'charging'
-                                      ? 'success'
-                                      : item.status === 'waiting'
-                                        ? 'warning'
-                                        : 'default'
-                                  }
-                                >
-                                  {item.status === 'charging'
-                                    ? 'Cargando'
-                                    : item.status === 'waiting'
-                                      ? 'En espera'
-                                      : 'Completado'}
-                                </SoliBadge>
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                {item.car} · {item.plate}
-                                {item.point_id && pointInfo && (
-                                  <span className="ml-1">
-                                    · {item.point_id} ({pointInfo.power}kW)
-                                  </span>
-                                )}
-                              </p>
-                            </div>
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary sm:h-12 sm:w-12">
+                            <Car className="h-5 w-5 text-muted-foreground sm:h-6 sm:w-6" />
                           </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate font-medium">
+                                {item.name}
+                              </p>
+                              <SoliBadge
+                                variant={
+                                  item.status === 'charging'
+                                    ? 'success'
+                                    : item.status === 'waiting'
+                                      ? 'warning'
+                                      : 'default'
+                                }
+                              >
+                                {item.status === 'charging'
+                                  ? 'Cargando'
+                                  : item.status === 'waiting'
+                                    ? 'En espera'
+                                    : 'Completado'}
+                              </SoliBadge>
+                            </div>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {item.car} · {item.plate}
+                              {item.point_id && pointInfo && (
+                                <span className="ml-1">
+                                  · {item.point_id} ({pointInfo.power}kW)
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
 
-                          <div className="flex items-center gap-3 sm:gap-4">
+                        {/* Fila inferior: countdown + acción */}
+                        <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/30 pt-3">
+                          <div className="min-w-0 flex-1">
                             {item.status === 'charging' &&
                               item.charge_started_at &&
                               item.duration_min && (
@@ -913,7 +931,9 @@ export default function ColaPage() {
                                 </span>
                               </div>
                             )}
+                          </div>
 
+                          <div className="shrink-0">
                             {item.status === 'waiting' && (
                               <Button
                                 size="sm"
@@ -921,7 +941,8 @@ export default function ColaPage() {
                                 onClick={() => openStartDialog(item)}
                                 disabled={freePoints.length === 0}
                               >
-                                <PlayCircle className="mr-1 h-4 w-4" /> Iniciar
+                                <PlayCircle className="mr-1 h-4 w-4" />
+                                <span className="hidden xs:inline">Iniciar</span>
                               </Button>
                             )}
                             {item.status === 'charging' && (
@@ -976,18 +997,22 @@ export default function ColaPage() {
 
         {/* Registro del día */}
         <FadeIn delay={0.3}>
-          <GlassCard className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+          <GlassCard className="p-4 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <History className="h-5 w-5 text-muted-foreground" />
-                <h3 className="text-lg font-semibold">Registro del día</h3>
+                <h3 className="text-base font-semibold sm:text-lg">
+                  Registro del día
+                </h3>
                 <SoliBadge variant="solar">
                   {todayTransactions.length}
                 </SoliBadge>
               </div>
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Total hoy</p>
-                <p className="text-lg font-bold text-primary">
+                <p className="text-[10px] text-muted-foreground sm:text-xs">
+                  Total hoy
+                </p>
+                <p className="text-base font-bold text-primary sm:text-lg">
                   {todayRevenue.toLocaleString()} CUP
                 </p>
               </div>
@@ -999,61 +1024,108 @@ export default function ColaPage() {
                 <p className="text-sm">No hay cargas registradas hoy</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
-                      <th className="pb-2 pr-4 font-medium">Hora</th>
-                      <th className="pb-2 pr-4 font-medium">Cliente</th>
-                      <th className="pb-2 pr-4 font-medium">Matrícula</th>
-                      <th className="pb-2 pr-4 font-medium">Duración</th>
-                      <th className="pb-2 pr-4 font-medium">Método</th>
-                      <th className="pb-2 text-right font-medium">Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {todayTransactions.map((t: any) => (
-                      <tr
-                        key={t.id}
-                        className="border-b border-border/30 text-sm hover:bg-muted/30"
-                      >
-                        <td className="py-3 pr-4 font-mono text-xs">
-                          {formatTime(t.created_at)}
-                        </td>
-                        <td className="py-3 pr-4 font-medium">
-                          {t.driver_name}
-                        </td>
-                        <td className="py-3 pr-4 font-mono text-xs">
-                          {t.plate}
-                        </td>
-                        <td className="py-3 pr-4 text-muted-foreground">
-                          {t.duration_min} min
-                        </td>
-                        <td className="py-3 pr-4">
-                          <SoliBadge
-                            variant={
-                              t.method === 'transfermovil'
-                                ? 'solar'
-                                : t.method === 'enzona'
-                                  ? 'info'
-                                  : 'default'
-                            }
-                          >
-                            {t.method === 'transfermovil'
-                              ? 'Transfermóvil'
-                              : t.method === 'enzona'
-                                ? 'EnZona'
-                                : 'Efectivo'}
-                          </SoliBadge>
-                        </td>
-                        <td className="py-3 text-right font-semibold text-primary">
-                          {t.amount} CUP
-                        </td>
+              <>
+                {/* Desktop: tabla */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                        <th className="pb-2 pr-4 font-medium">Hora</th>
+                        <th className="pb-2 pr-4 font-medium">Cliente</th>
+                        <th className="pb-2 pr-4 font-medium">Matrícula</th>
+                        <th className="pb-2 pr-4 font-medium">Duración</th>
+                        <th className="pb-2 pr-4 font-medium">Método</th>
+                        <th className="pb-2 text-right font-medium">Monto</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {todayTransactions.map((t: any) => (
+                        <tr
+                          key={t.id}
+                          className="border-b border-border/30 text-sm hover:bg-muted/30"
+                        >
+                          <td className="py-3 pr-4 font-mono text-xs">
+                            {formatTime(t.created_at)}
+                          </td>
+                          <td className="py-3 pr-4 font-medium">
+                            {t.driver_name}
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-xs">
+                            {t.plate}
+                          </td>
+                          <td className="py-3 pr-4 text-muted-foreground">
+                            {t.duration_min} min
+                          </td>
+                          <td className="py-3 pr-4">
+                            <SoliBadge
+                              variant={
+                                t.method === 'transfermovil'
+                                  ? 'solar'
+                                  : t.method === 'enzona'
+                                    ? 'info'
+                                    : 'default'
+                              }
+                            >
+                              {t.method === 'transfermovil'
+                                ? 'Transfermóvil'
+                                : t.method === 'enzona'
+                                  ? 'EnZona'
+                                  : 'Efectivo'}
+                            </SoliBadge>
+                          </td>
+                          <td className="py-3 text-right font-semibold text-primary">
+                            {t.amount} CUP
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile: cards */}
+                <div className="space-y-2.5 md:hidden">
+                  {todayTransactions.map((t: any) => (
+                    <div
+                      key={t.id}
+                      className="rounded-xl border border-border/50 bg-card/30 p-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {formatTime(t.created_at)}
+                        </span>
+                        <SoliBadge
+                          variant={
+                            t.method === 'transfermovil'
+                              ? 'solar'
+                              : t.method === 'enzona'
+                                ? 'info'
+                                : 'default'
+                          }
+                        >
+                          {t.method === 'transfermovil'
+                            ? 'Transfermóvil'
+                            : t.method === 'enzona'
+                              ? 'EnZona'
+                              : 'Efectivo'}
+                        </SoliBadge>
+                      </div>
+                      <div className="flex items-end justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {t.driver_name}
+                          </p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            {t.plate} · {t.duration_min} min
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-base font-bold text-primary">
+                          {t.amount} CUP
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </GlassCard>
         </FadeIn>
@@ -1061,19 +1133,19 @@ export default function ColaPage() {
 
       {/* ===== DIÁLOGO INICIAR CARGA ===== */}
       <Dialog open={startOpen} onOpenChange={setStartOpen}>
-        <DialogContent className="glass-strong max-w-lg border-border/50">
+        <DialogContent className="glass-strong max-h-[90vh] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto border-border/50">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
               <AlarmClock className="h-5 w-5 text-primary" />
               Iniciar carga
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="truncate text-xs sm:text-sm">
               {startItem?.name} · {startItem?.car} · {startItem?.plate}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
+              <Label className="flex items-center gap-2 text-sm">
                 <Gauge className="h-4 w-4" /> Elige el punto de carga
               </Label>
               <div className="grid grid-cols-2 gap-2">
@@ -1088,14 +1160,16 @@ export default function ColaPage() {
                         : 'border-border/50 hover:border-primary/30'
                     )}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">{p.label}</span>
-                      <span className="text-xs font-mono text-primary">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="truncate text-sm font-semibold">
+                        {p.label}
+                      </span>
+                      <span className="shrink-0 text-[10px] font-mono text-primary sm:text-xs">
                         {p.pricePerKwh} CUP
                       </span>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {p.power} kW de potencia
+                    <span className="text-[11px] text-muted-foreground sm:text-xs">
+                      {p.power} kW
                     </span>
                   </button>
                 ))}
@@ -1103,7 +1177,7 @@ export default function ColaPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Duración de la carga</Label>
+              <Label className="text-sm">Duración de la carga</Label>
               <div className="grid grid-cols-4 gap-2">
                 {[30, 60, 90, 120].map((d) => (
                   <button
@@ -1113,7 +1187,7 @@ export default function ColaPage() {
                       setCustomDuration('');
                     }}
                     className={cn(
-                      'rounded-lg border px-2 py-2 text-sm font-medium transition-all',
+                      'rounded-lg border px-1 py-2 text-xs font-medium transition-all sm:px-2 sm:text-sm',
                       startDuration === d && !customDuration
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border/50 hover:border-primary/30'
@@ -1139,7 +1213,7 @@ export default function ColaPage() {
             </div>
 
             {selectedPointData && (
-              <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 sm:p-4">
                 <div className="mb-2 flex items-center gap-2">
                   <Calculator className="h-4 w-4 text-primary" />
                   <span className="text-xs font-semibold text-primary">
@@ -1161,18 +1235,22 @@ export default function ColaPage() {
                     CUP/kWh
                   </p>
                 </div>
-                <p className="mt-2 text-lg font-bold text-primary">
+                <p className="mt-2 text-lg font-bold text-primary sm:text-xl">
                   ≈ {estimated.amount} CUP
                 </p>
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStartOpen(false)}>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setStartOpen(false)}
+            >
               Cancelar
             </Button>
             <Button
-              className="gradient-solar text-white hover:opacity-90"
+              className="w-full gradient-solar text-white hover:opacity-90 sm:w-auto"
               onClick={confirmStart}
               disabled={!selectedPoint}
             >
@@ -1185,20 +1263,20 @@ export default function ColaPage() {
 
       {/* ===== DIÁLOGO COBRAR ===== */}
       <Dialog open={collectOpen} onOpenChange={setCollectOpen}>
-        <DialogContent className="glass-strong border-border/50">
+        <DialogContent className="glass-strong max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto border-border/50">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
               <DollarSign className="h-5 w-5 text-primary" />
               Cobrar carga
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="truncate text-xs sm:text-sm">
               {collectItem?.name} · {collectItem?.car} · {collectItem?.plate}
             </DialogDescription>
           </DialogHeader>
           {collectItem && (
             <div className="space-y-4 py-2">
               {collectPointData && collectMinutes > 0 && (
-                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 sm:p-4">
                   <div className="mb-2 flex items-center gap-2">
                     <Calculator className="h-4 w-4 text-primary" />
                     <span className="text-xs font-semibold text-primary">
@@ -1219,71 +1297,77 @@ export default function ColaPage() {
                       Tiempo total: {collectMinutes} min
                     </p>
                   </div>
-                  <p className="mt-2 text-xl font-bold text-primary">
+                  <p className="mt-2 text-lg font-bold text-primary sm:text-xl">
                     = {collectAmount} CUP
                   </p>
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label>Monto final (CUP)</Label>
+                <Label className="text-sm">Monto final (CUP)</Label>
                 <Input
                   type="number"
                   value={collectAmount}
                   onChange={(e) => setCollectAmount(e.target.value)}
-                  className="text-2xl font-bold text-primary"
+                  className="text-xl font-bold text-primary sm:text-2xl"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Método de pago</Label>
+                <Label className="text-sm">Método de pago</Label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     onClick={() => setCollectMethod('transfermovil')}
                     className={cn(
-                      'flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-medium transition-all',
+                      'flex flex-col items-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-medium transition-all sm:px-2 sm:text-xs',
                       collectMethod === 'transfermovil'
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border/50'
                     )}
                   >
-                    <Smartphone className="h-5 w-5" />
-                    Transfermóvil
+                    <Smartphone className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <span className="text-center leading-tight">
+                      Transfermóvil
+                    </span>
                   </button>
                   <button
                     onClick={() => setCollectMethod('enzona')}
                     className={cn(
-                      'flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-medium transition-all',
+                      'flex flex-col items-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-medium transition-all sm:px-2 sm:text-xs',
                       collectMethod === 'enzona'
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border/50'
                     )}
                   >
-                    <CreditCard className="h-5 w-5" />
-                    EnZona
+                    <CreditCard className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <span>EnZona</span>
                   </button>
                   <button
                     onClick={() => setCollectMethod('efectivo')}
                     className={cn(
-                      'flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-medium transition-all',
+                      'flex flex-col items-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-medium transition-all sm:px-2 sm:text-xs',
                       collectMethod === 'efectivo'
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border/50'
                     )}
                   >
-                    <Banknote className="h-5 w-5" />
-                    Efectivo
+                    <Banknote className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <span>Efectivo</span>
                   </button>
                 </div>
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCollectOpen(false)}>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setCollectOpen(false)}
+            >
               Cancelar
             </Button>
             <Button
-              className="gradient-solar text-white hover:opacity-90"
+              className="w-full gradient-solar text-white hover:opacity-90 sm:w-auto"
               onClick={confirmCollect}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -1295,16 +1379,20 @@ export default function ColaPage() {
 
       {/* ===== DIÁLOGO AÑADIR VEHÍCULO ===== */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="glass-strong border-border/50">
+        <DialogContent className="glass-strong max-h-[90vh] w-[calc(100vw-2rem)] overflow-y-auto border-border/50">
           <DialogHeader>
-            <DialogTitle>Añadir vehículo a la cola</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">
+              Añadir vehículo a la cola
+            </DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               Registra un cliente que llegó sin reserva.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-2">
-              <Label htmlFor="cust-name">Nombre del cliente</Label>
+              <Label htmlFor="cust-name" className="text-sm">
+                Nombre del cliente
+              </Label>
               <Input
                 id="cust-name"
                 placeholder="Ej: Pedro Hernández"
@@ -1314,7 +1402,9 @@ export default function ColaPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="cust-car">Tipo de vehículo</Label>
+              <Label htmlFor="cust-car" className="text-sm">
+                Tipo de vehículo
+              </Label>
               <select
                 id="cust-car"
                 value={newCar}
@@ -1330,7 +1420,9 @@ export default function ColaPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="cust-plate">Matrícula</Label>
+              <Label htmlFor="cust-plate" className="text-sm">
+                Matrícula
+              </Label>
               <Input
                 id="cust-plate"
                 placeholder="T-123456"
@@ -1339,9 +1431,10 @@ export default function ColaPage() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <Button
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => {
                 resetAddForm();
                 setAddOpen(false);
@@ -1350,7 +1443,7 @@ export default function ColaPage() {
               Cancelar
             </Button>
             <Button
-              className="gradient-solar text-white hover:opacity-90"
+              className="w-full gradient-solar text-white hover:opacity-90 sm:w-auto"
               onClick={handleAddVehicle}
               disabled={!newName.trim() || !newPlate.trim()}
             >
