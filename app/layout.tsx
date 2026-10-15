@@ -1,17 +1,9 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import dynamic from 'next/dynamic';
-import { ThemeProvider } from '@/components/theme-provider';
-import { Toaster } from '@/components/ui/sonner';
+import { Providers } from '@/components/providers';
 
 const inter = Inter({ subsets: ['latin'] });
-
-// ✅ Cargar QueryProvider SOLO en el cliente
-const QueryProvider = dynamic(
-  () => import('@/components/query-provider').then((m) => m.QueryProvider),
-  { ssr: false }
-);
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.solinet.de5.net'),
@@ -82,12 +74,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#FF8C00" />
       </head>
       <body className={inter.className}>
-        <QueryProvider>
-          <ThemeProvider>
-            {children}
-            <Toaster />
-          </ThemeProvider>
-        </QueryProvider>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

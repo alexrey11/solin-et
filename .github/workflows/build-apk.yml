@@ -1,7 +1,5 @@
 name: Build Native APK with Capacitor
 
-
-
 on:
   push:
     branches: [ feature/offline-first ]
