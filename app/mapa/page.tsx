@@ -67,19 +67,34 @@ export default function MapaPage() {
   const [driverProfile, setDriverProfile] = React.useState<any>(null);
   const [lastReservation, setLastReservation] = React.useState<any>(null);
 
-  // Cargar driver profile
+  // ✅ QR responsive: se adapta al ancho de pantalla
+  const [qrSize, setQrSize] = React.useState(200);
+  React.useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      if (w < 360) setQrSize(150);
+      else if (w < 400) setQrSize(170);
+      else if (w < 480) setQrSize(190);
+      else setQrSize(220);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  // Cargar driver profile (offline-safe)
   React.useEffect(() => {
     const loadDriver = async () => {
       const supabase = createClient();
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return;
 
       const { data } = await supabase
         .from('driver_profiles')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', session.user.id)
         .maybeSingle();
 
       setDriverProfile(data);
@@ -89,6 +104,8 @@ export default function MapaPage() {
 
   const openReserve = (s: SolineraRemote) => {
     setSelected(s);
+    setSelectedSlot(null);
+    setPaymentMethod(null);
     setReserveOpen(true);
   };
 
@@ -107,7 +124,6 @@ export default function MapaPage() {
     const slot = selectedSlot;
     const method = paymentMethod;
 
-    // ✅ Offline-first
     createReservation.mutate(
       {
         solineraId,
@@ -126,7 +142,6 @@ export default function MapaPage() {
         onError: (err: any) => {
           console.error('Error al reservar:', err);
           toast.error('Se sincronizará cuando vuelva la conexión');
-          // Aun así mostramos el QR porque la reserva está guardada localmente
           setLastReservation({
             id: `local-${Date.now()}`,
             short_code: 'PENDIENTE',
@@ -179,14 +194,14 @@ export default function MapaPage() {
       <AppShell>
         <div className="space-y-6">
           <PageHeader
-            title="Mapa Consumer"
+            title="Mapa"
             subtitle="Encuentra solineras cercanas y reserva tu carga"
           />
-          <GlassCard className="p-12 text-center">
+          <GlassCard className="p-8 text-center sm:p-12">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl gradient-solar text-white">
               <MapPin className="h-8 w-8" />
             </div>
-            <h2 className="text-xl font-bold">No hay solineras aún</h2>
+            <h2 className="text-lg font-bold sm:text-xl">No hay solineras aún</h2>
             <p className="mt-2 text-sm text-muted-foreground">
               Aún no hay solineras registradas. Vuelve más tarde.
             </p>
@@ -198,42 +213,59 @@ export default function MapaPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
+      <div className="space-y-5 sm:space-y-6">
         <PageHeader
-          title="Mapa Consumer"
+          title="Mapa"
           subtitle="Encuentra solineras cercanas y reserva tu carga"
           action={
-            <div className="flex items-center gap-2">
+            <div className="hidden sm:flex sm:items-center sm:gap-2">
               <StatusIndicator online label="GPS activo" />
             </div>
           }
         />
 
+        {/* Buscador + Filtros */}
         <FadeIn delay={0.1}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nombre o dirección..."
+                placeholder="Buscar solinera..."
                 className="pl-10"
               />
             </div>
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 h-4 w-4" /> Filtros
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              aria-label="Filtros"
+            >
+              <Filter className="h-4 w-4" />
+              <span className="ml-2 hidden sm:inline">Filtros</span>
             </Button>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <FilterChip active>Todos</FilterChip>
-            <FilterChip>Disponibles ahora</FilterChip>
-            <FilterChip>Carga rápida (22kW+)</FilterChip>
-            <FilterChip>Menor precio</FilterChip>
+
+          {/* Filtros chips: scroll horizontal en móvil */}
+          <div className="-mx-4 mt-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+            <div className="flex w-max gap-2 sm:w-auto sm:flex-wrap">
+              <FilterChip active>Todos</FilterChip>
+              <FilterChip>Disponibles</FilterChip>
+              <FilterChip>Carga rápida</FilterChip>
+              <FilterChip>Menor precio</FilterChip>
+            </div>
           </div>
         </FadeIn>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-5 lg:gap-6">
+          {/* Mapa */}
           <FadeIn delay={0.2} className="lg:col-span-3">
-            <GlassCard className="relative overflow-hidden p-0">
-              <div className="relative h-[400px] w-full overflow-hidden rounded-2xl sm:h-[520px]">
+            <GlassCard className="relative p-0">
+              {/*
+                ⚠️ overflow-visible para que el control de descarga de
+                real-map.tsx no quede clipeado en móvil.
+                Si el mapa sangra en las esquinas, se arregla en real-map.
+              */}
+              <div className="relative h-[380px] w-full overflow-visible rounded-2xl sm:h-[520px]">
                 <RealMapDynamic
                   solineras={validSolineras.map((s) => ({
                     id: s.id,
@@ -259,6 +291,7 @@ export default function MapaPage() {
             </GlassCard>
           </FadeIn>
 
+          {/* Lista de solineras */}
           <FadeIn delay={0.3} className="lg:col-span-2">
             <div className="space-y-3 scrollbar-hide lg:max-h-[520px] lg:overflow-y-auto">
               {solineras.map((s, idx) => (
@@ -275,16 +308,17 @@ export default function MapaPage() {
                       selected?.id === s.id && 'border-primary/50 bg-primary/5'
                     )}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-semibold">{s.name}</h4>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="truncate font-semibold">{s.name}</h4>
                           <SoliBadge variant="success">Abierto</SoliBadge>
                         </div>
-                        <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="h-3 w-3" /> {s.address}
+                        <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{s.address}</span>
                         </p>
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                           <span className="flex items-center gap-1">
                             <Star className="h-3 w-3 text-accent" /> 4.8
                           </span>
@@ -295,16 +329,19 @@ export default function MapaPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-center justify-between">
+
+                    <div className="mt-3 flex items-center justify-between gap-2">
                       <span className="text-sm font-medium text-primary">
                         {s.price_per_kwh} CUP/kWh
                       </span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex shrink-0 items-center gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => shareSolinera(s)}
                           title="Compartir por WhatsApp"
+                          aria-label="Compartir"
+                          className="px-2"
                         >
                           <Share2 className="h-4 w-4" />
                         </Button>
@@ -327,25 +364,27 @@ export default function MapaPage() {
 
       {/* Reserve Dialog */}
       <Dialog open={reserveOpen} onOpenChange={setReserveOpen}>
-        <DialogContent className="glass-strong max-w-md border-border/50">
+        <DialogContent className="glass-strong max-h-[90vh] w-[calc(100vw-2rem)] max-w-md overflow-y-auto border-border/50">
           <DialogHeader>
-            <DialogTitle>Reservar carga</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">
+              Reservar carga
+            </DialogTitle>
+            <DialogDescription className="truncate text-xs sm:text-sm">
               {selected?.name} · {selected?.address}
             </DialogDescription>
           </DialogHeader>
           {selected && (
             <div className="space-y-4 py-2">
-              <div className="flex items-center justify-between rounded-xl border border-border/50 bg-card/30 p-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-solar text-white">
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card/30 p-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl gradient-solar text-white">
                     <Zap className="h-5 w-5" />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
                       {selected.points} puntos
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="truncate text-xs text-muted-foreground">
                       {selected.price_per_kwh} CUP/kWh
                     </p>
                   </div>
@@ -360,13 +399,13 @@ export default function MapaPage() {
                   <Calendar className="h-4 w-4" />
                   Selecciona un horario
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {slots.map((slot) => (
                     <button
                       key={slot}
                       onClick={() => setSelectedSlot(slot)}
                       className={cn(
-                        'rounded-lg border px-2 py-2 text-xs font-medium transition-all',
+                        'rounded-lg border px-1 py-2 text-[11px] font-medium transition-all sm:px-2 sm:text-xs',
                         selectedSlot === slot
                           ? 'border-primary bg-primary/10 text-primary'
                           : 'border-border/50 hover:border-primary/30 hover:bg-muted'
@@ -429,12 +468,16 @@ export default function MapaPage() {
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReserveOpen(false)}>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setReserveOpen(false)}
+            >
               Cancelar
             </Button>
             <Button
-              className="gradient-solar text-white hover:opacity-90"
+              className="w-full gradient-solar text-white hover:opacity-90 sm:w-auto"
               disabled={!selectedSlot || !paymentMethod}
               onClick={confirmReserve}
             >
@@ -446,30 +489,32 @@ export default function MapaPage() {
 
       {/* Confirmación con QR */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="glass-strong max-w-sm border-border/50">
+        <DialogContent className="glass-strong max-h-[90vh] w-[calc(100vw-2rem)] max-w-sm overflow-y-auto border-border/50">
           <DialogHeader>
             <DialogTitle className="sr-only">Reserva confirmada</DialogTitle>
             <DialogDescription className="sr-only">
               Muestra este código al llegar
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col items-center py-4">
+          <div className="flex flex-col items-center py-2 sm:py-4">
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ type: 'spring', damping: 12 }}
-              className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/15"
+              className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-success/15 sm:h-16 sm:w-16"
             >
-              <Check className="h-8 w-8 text-success" />
+              <Check className="h-7 w-7 text-success sm:h-8 sm:w-8" />
             </motion.div>
-            <h3 className="text-lg font-bold">Reserva confirmada</h3>
-            <p className="mt-1 text-center text-sm text-muted-foreground">
+            <h3 className="text-base font-bold sm:text-lg">
+              Reserva confirmada
+            </h3>
+            <p className="mt-1 text-center text-xs text-muted-foreground sm:text-sm">
               {lastReservation?.solineraName} · {selectedSlot}
             </p>
 
             {lastReservation && (
               <>
-                <div className="mt-4 rounded-xl border border-border/50 bg-white p-4">
+                <div className="mt-4 rounded-xl border border-border/50 bg-white p-3 sm:p-4">
                   <QRCodeSVG
                     value={JSON.stringify({
                       type: 'solinet-reservation',
@@ -485,19 +530,19 @@ export default function MapaPage() {
                       amount: lastReservation.amount,
                       method: lastReservation.payment_method,
                     })}
-                    size={200}
+                    size={qrSize}
                     level="M"
                   />
                 </div>
 
-                <div className="mt-4 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-4 text-center">
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="mt-4 w-full rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 p-3 text-center sm:p-4">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">
                     Código de reserva
                   </p>
-                  <p className="mt-1 text-3xl font-bold tracking-[0.3em] text-primary">
+                  <p className="mt-1 text-2xl font-bold tracking-[0.25em] text-primary sm:text-3xl sm:tracking-[0.3em]">
                     {lastReservation.short_code}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="mt-1 text-[10px] text-muted-foreground sm:text-xs">
                     Muestra este código al llegar
                   </p>
                 </div>
@@ -516,7 +561,7 @@ export default function MapaPage() {
                 className="flex-1 gradient-tech text-white hover:opacity-90"
                 asChild
               >
-                <Link href="/reservas">Ver mis reservas</Link>
+                <Link href="/reservas">Mis reservas</Link>
               </Button>
             </div>
           </div>
@@ -536,7 +581,7 @@ function FilterChip({
   return (
     <button
       className={cn(
-        'rounded-full border px-3 py-1 text-xs font-medium transition-all',
+        'shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-medium transition-all',
         active
           ? 'border-primary bg-primary/10 text-primary'
           : 'border-border/50 text-muted-foreground hover:border-primary/30 hover:text-foreground'
@@ -562,14 +607,14 @@ function PaymentButton({
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-all',
+        'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-medium transition-all sm:text-sm',
         active
           ? 'border-primary bg-primary/10 text-primary'
           : 'border-border/50 hover:border-primary/30 hover:bg-muted'
       )}
     >
       {icon}
-      {label}
+      <span className="truncate">{label}</span>
     </button>
   );
 }

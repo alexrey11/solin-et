@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { MapContainer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -83,7 +84,6 @@ function createCachedTileLayer(): L.TileLayer {
         const loadFromNetwork = () => {
             const url = buildTileUrl(coords.x, coords.y, coords.z);
             tile.onload = () => {
-                // Cachear en segundo plano
                 fetch(url)
                     .then((r) => (r.ok ? r.blob() : null))
                     .then((blob) => {
@@ -156,8 +156,6 @@ function MapInstanceCatcher({ onReady }: { onReady: (map: L.Map) => void }) {
     }, [map, onReady]);
     return null;
 }
-
-// ===== CAPA DE TILES (se inicializa una sola vez) =====
 
 function TileLayerSetup() {
     const map = useMap();
@@ -232,7 +230,7 @@ const userIcon = L.divIcon({
     popupAnchor: [0, -12],
 });
 
-// ===== MODAL DE DESCARGA =====
+// ===== MODAL DE DESCARGA (via PORTAL) =====
 
 function DownloadModal({
     open,
@@ -252,8 +250,23 @@ function DownloadModal({
     const [selectedZooms, setSelectedZooms] = React.useState<number[]>([
         13, 14, 15,
     ]);
+    const [mounted, setMounted] = React.useState(false);
 
-    if (!open) return null;
+    React.useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    // Bloquear scroll del body cuando el modal está abierto
+    React.useEffect(() => {
+        if (!open) return;
+        const original = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = original;
+        };
+    }, [open]);
+
+    if (!open || !mounted) return null;
 
     const toggleZoom = (z: number) => {
         setSelectedZooms((prev) =>
@@ -261,141 +274,177 @@ function DownloadModal({
         );
     };
 
-    const totalTiles =
-        selectedZooms.length > 0 ? progress.total || '?' : 0;
-
     const percentage =
-        progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+        progress.total > 0
+            ? Math.round((progress.done / progress.total) * 100)
+            : 0;
 
-    return (
-        <div className="absolute inset-0 z-[2000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
-                <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-bold">Descargar mapa offline</h3>
+    const modalContent = (
+        <div
+            // z-index altísimo para superar cualquier control de Leaflet (zoom, etc)
+            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4"
+            onClick={(e) => {
+                // Cerrar si toca el fondo (solo cuando no está descargando)
+                if (e.target === e.currentTarget && !isDownloading) {
+                    onClose();
+                }
+            }}
+        >
+            <div
+                className={[
+                    // Bottom sheet en móvil, card centrado en desktop
+                    'relative flex w-full flex-col overflow-hidden',
+                    'max-h-[90vh] sm:max-h-[85vh] sm:max-w-md',
+                    'rounded-t-3xl border border-border bg-card shadow-2xl sm:rounded-2xl',
+                    // Safe area para iPhone con notch
+                    'pb-[max(1rem,env(safe-area-inset-bottom))]',
+                ].join(' ')}
+            >
+                {/* Handle visual de bottom sheet (solo móvil) */}
+                <div className="flex justify-center pt-2 sm:hidden">
+                    <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+                </div>
+
+                {/* Header */}
+                <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-3 sm:px-6 sm:py-4">
+                    <h3 className="text-base font-bold sm:text-lg">
+                        {result ? 'Descarga completada' : 'Mapa offline'}
+                    </h3>
                     <button
                         onClick={onClose}
                         disabled={isDownloading}
-                        className="rounded-lg p-1 hover:bg-muted disabled:opacity-50"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-muted disabled:opacity-50"
+                        aria-label="Cerrar"
                     >
                         <X className="h-4 w-4" />
                     </button>
                 </div>
 
-                {!isDownloading && !result && (
-                    <>
-                        <p className="text-sm text-muted-foreground">
-                            Descarga los tiles del mapa de la zona visible para usarlos sin
-                            internet. Selecciona los niveles de zoom:
-                        </p>
+                {/* Contenido scrolleable */}
+                <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+                    {!isDownloading && !result && (
+                        <>
+                            <p className="text-sm text-muted-foreground">
+                                Descarga los tiles del mapa de la zona visible para usarlos sin
+                                internet. Selecciona los niveles de zoom:
+                            </p>
 
-                        <div className="mt-4 space-y-2">
-                            <ZoomOption
-                                level={12}
-                                label="Vista de ciudad (rápido)"
-                                checked={selectedZooms.includes(12)}
-                                onToggle={() => toggleZoom(12)}
-                            />
-                            <ZoomOption
-                                level={13}
-                                label="Calles principales"
-                                checked={selectedZooms.includes(13)}
-                                onToggle={() => toggleZoom(13)}
-                            />
-                            <ZoomOption
-                                level={14}
-                                label="Calles y barrios (recomendado)"
-                                checked={selectedZooms.includes(14)}
-                                onToggle={() => toggleZoom(14)}
-                            />
-                            <ZoomOption
-                                level={15}
-                                label="Detalle de calles"
-                                checked={selectedZooms.includes(15)}
-                                onToggle={() => toggleZoom(15)}
-                            />
-                            <ZoomOption
-                                level={16}
-                                label="Máximo detalle (lento)"
-                                checked={selectedZooms.includes(16)}
-                                onToggle={() => toggleZoom(16)}
-                            />
-                        </div>
-
-                        <div className="mt-4 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-                            💡 <strong>Recomendado:</strong> elige 13, 14 y 15. Cubre la
-                            mayoría de usos sin gastar demasiado espacio.
-                        </div>
-
-                        <div className="mt-4 flex gap-2">
-                            <button
-                                onClick={onClose}
-                                className="flex-1 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={() => onDownload(selectedZooms)}
-                                disabled={selectedZooms.length === 0}
-                                className="flex-1 rounded-lg bg-gradient-to-r from-orange-500 to-yellow-500 px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                            >
-                                <Download className="mr-1 inline h-4 w-4" />
-                                Descargar
-                            </button>
-                        </div>
-                    </>
-                )}
-
-                {isDownloading && (
-                    <>
-                        <p className="text-sm text-muted-foreground">
-                            Descargando tiles de la zona visible...
-                        </p>
-
-                        <div className="mt-4">
-                            <div className="mb-2 flex items-center justify-between text-sm">
-                                <span>
-                                    {progress.done} / {progress.total}
-                                </span>
-                                <span className="font-semibold">{percentage}%</span>
-                            </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-muted">
-                                <div
-                                    className="h-full rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 transition-all duration-300"
-                                    style={{ width: `${percentage}%` }}
+                            <div className="mt-4 space-y-2">
+                                <ZoomOption
+                                    level={12}
+                                    label="Vista de ciudad (rápido)"
+                                    checked={selectedZooms.includes(12)}
+                                    onToggle={() => toggleZoom(12)}
+                                />
+                                <ZoomOption
+                                    level={13}
+                                    label="Calles principales"
+                                    checked={selectedZooms.includes(13)}
+                                    onToggle={() => toggleZoom(13)}
+                                />
+                                <ZoomOption
+                                    level={14}
+                                    label="Calles y barrios (recomendado)"
+                                    checked={selectedZooms.includes(14)}
+                                    onToggle={() => toggleZoom(14)}
+                                />
+                                <ZoomOption
+                                    level={15}
+                                    label="Detalle de calles"
+                                    checked={selectedZooms.includes(15)}
+                                    onToggle={() => toggleZoom(15)}
+                                />
+                                <ZoomOption
+                                    level={16}
+                                    label="Máximo detalle (lento)"
+                                    checked={selectedZooms.includes(16)}
+                                    onToggle={() => toggleZoom(16)}
                                 />
                             </div>
-                        </div>
 
-                        <p className="mt-4 text-xs text-muted-foreground">
-                            No cierres esta ventana. Puede tardar varios minutos.
-                        </p>
-                    </>
-                )}
+                            <div className="mt-4 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                                💡 <strong>Recomendado:</strong> elige 13, 14 y 15. Cubre la
+                                mayoría de usos sin gastar demasiado espacio.
+                            </div>
+                        </>
+                    )}
 
-                {result && (
-                    <>
+                    {isDownloading && (
+                        <>
+                            <p className="text-sm text-muted-foreground">
+                                Descargando tiles de la zona visible...
+                            </p>
+
+                            <div className="mt-4">
+                                <div className="mb-2 flex items-center justify-between text-sm">
+                                    <span>
+                                        {progress.done} / {progress.total}
+                                    </span>
+                                    <span className="font-semibold">{percentage}%</span>
+                                </div>
+                                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                                    <div
+                                        className="h-full rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 transition-all duration-300"
+                                        style={{ width: `${percentage}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            <p className="mt-4 text-xs text-muted-foreground">
+                                No cierres esta ventana. Puede tardar varios minutos.
+                            </p>
+                        </>
+                    )}
+
+                    {result && (
                         <div className="flex flex-col items-center py-4">
                             <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-success/15">
                                 <Check className="h-7 w-7 text-success" />
                             </div>
                             <p className="font-semibold">¡Descarga completada!</p>
-                            <p className="mt-1 text-sm text-muted-foreground">
+                            <p className="mt-1 text-center text-sm text-muted-foreground">
                                 {result.success} tiles guardados
                                 {result.failed > 0 && ` · ${result.failed} fallidos`}
                             </p>
                         </div>
+                    )}
+                </div>
 
-                        <button
-                            onClick={onClose}
-                            className="mt-4 w-full rounded-lg bg-gradient-to-r from-orange-500 to-yellow-500 px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-                        >
-                            Listo
-                        </button>
-                    </>
+                {/* Footer con botones */}
+                {!isDownloading && (
+                    <div className="border-t border-border/50 px-4 py-3 sm:px-6 sm:py-4">
+                        {!result ? (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={onClose}
+                                    className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => onDownload(selectedZooms)}
+                                    disabled={selectedZooms.length === 0}
+                                    className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-gradient-to-r from-orange-500 to-yellow-500 px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                                >
+                                    <Download className="h-4 w-4" />
+                                    Descargar
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={onClose}
+                                className="w-full rounded-lg bg-gradient-to-r from-orange-500 to-yellow-500 px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                            >
+                                Listo
+                            </button>
+                        )}
+                    </div>
                 )}
             </div>
         </div>
     );
+
+    return createPortal(modalContent, document.body);
 }
 
 function ZoomOption({
@@ -411,20 +460,22 @@ function ZoomOption({
 }) {
     return (
         <label
-            className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-all ${checked
-                ? 'border-primary bg-primary/5'
-                : 'border-border/50 hover:border-border'
-                }`}
+            className={[
+                'flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-all',
+                checked
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border/50 hover:border-border',
+            ].join(' ')}
         >
             <input
                 type="checkbox"
                 checked={checked}
                 onChange={onToggle}
-                className="h-4 w-4 accent-orange-500"
+                className="h-4 w-4 shrink-0 accent-orange-500"
             />
-            <div className="flex-1">
-                <div className="flex items-center gap-2">
-                    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+            <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                         z{level}
                     </span>
                     <span className="text-sm font-medium">{label}</span>
@@ -444,7 +495,6 @@ async function downloadRegion(
 ): Promise<{ success: number; failed: number }> {
     const tiles: Array<{ z: number; x: number; y: number }> = [];
 
-    // Calcular todos los tiles
     for (const z of zoomLevels) {
         const nw = latLngToTile(
             bounds.getNorthWest().lat,
@@ -735,24 +785,24 @@ export function RealMap({
             {/* ===== BOTONES OVERLAY ===== */}
             {!interactive && (
                 <div className="absolute bottom-6 right-4 z-[1000] flex flex-col gap-2">
-                    {/* Botón descargar */}
                     {showDownloadControl && (
                         <button
                             onClick={() => setDownloadOpen(true)}
                             disabled={isDownloading}
-                            className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-white text-orange-500 shadow-lg transition-transform hover:scale-110 disabled:opacity-70"
+                            className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-white text-orange-500 shadow-lg transition-transform hover:scale-110 disabled:opacity-70 sm:h-11 sm:w-11"
                             title="Descargar mapa offline"
+                            aria-label="Descargar mapa offline"
                         >
                             <Download className="h-5 w-5" />
                         </button>
                     )}
 
-                    {/* Botón mi ubicación */}
                     <button
                         onClick={handleLocate}
                         disabled={locating}
-                        className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-white text-blue-500 shadow-lg transition-transform hover:scale-110 disabled:opacity-70"
+                        className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-white text-blue-500 shadow-lg transition-transform hover:scale-110 disabled:opacity-70 sm:h-11 sm:w-11"
                         title="Mi ubicación"
+                        aria-label="Mi ubicación"
                     >
                         {locating ? (
                             <span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
@@ -765,25 +815,24 @@ export function RealMap({
 
             {/* ===== OVERLAY INFO ===== */}
             {!interactive && (
-                <div className="pointer-events-none absolute bottom-4 left-4 z-[1000] flex items-center gap-2 rounded-lg border border-border/50 bg-card/80 px-3 py-2 backdrop-blur-xl">
+                <div className="pointer-events-none absolute bottom-4 left-3 z-[1000] flex items-center gap-2 rounded-lg border border-border/50 bg-card/80 px-2.5 py-1.5 backdrop-blur-xl sm:left-4 sm:px-3 sm:py-2">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
-                    <span className="text-xs font-medium">
-                        {solineras.length} solinera{solineras.length !== 1 ? 's' : ''}{' '}
-                        disponible{solineras.length !== 1 ? 's' : ''}
+                    <span className="text-[11px] font-medium sm:text-xs">
+                        {solineras.length} solinera{solineras.length !== 1 ? 's' : ''}
                     </span>
                 </div>
             )}
 
             {/* ===== INSTRUCCIÓN MODO ONBOARDING ===== */}
             {interactive && (
-                <div className="pointer-events-none absolute bottom-4 left-1/2 z-[1000] -translate-x-1/2 rounded-lg border border-primary/40 bg-card/95 px-4 py-2 backdrop-blur-xl">
-                    <p className="text-xs font-medium">
-                        📍 Toca el mapa para marcar la ubicación de tu solinera
+                <div className="pointer-events-none absolute bottom-4 left-1/2 z-[1000] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-primary/40 bg-card/95 px-3 py-2 backdrop-blur-xl sm:w-auto sm:px-4">
+                    <p className="text-center text-[11px] font-medium sm:text-xs">
+                        📍 Toca el mapa para marcar la ubicación
                     </p>
                 </div>
             )}
 
-            {/* ===== MODAL DE DESCARGA ===== */}
+            {/* ===== MODAL DE DESCARGA (portal a body) ===== */}
             <DownloadModal
                 open={downloadOpen}
                 onClose={handleCloseDownload}
