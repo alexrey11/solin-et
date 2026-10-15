@@ -31,6 +31,8 @@ import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, StatCard, SoliBadge } from '@/components/soli/glass-card';
 import { PageHeader, FadeIn } from '@/components/soli/charts';
 import { Button } from '@/components/ui/button';
+import { exportReportPDF } from '@/lib/export-pdf';
+import { toast } from 'sonner';
 import {
   useSolineraActiva,
 } from '@/lib/queries/solinera';
@@ -216,7 +218,39 @@ export default function ReportesPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.print()}
+              onClick={async () => {
+                if (!solinera) return;
+                try {
+                  await exportReportPDF({
+                    solinera: {
+                      name: solinera.name,
+                      address: solinera.address,
+                      phone: solinera.phone,
+                    },
+                    transactions: transactions.map((t: any) => ({
+                      created_at: t.created_at,
+                      driver_name: t.driver_name,
+                      plate: t.plate,
+                      duration_min: t.duration_min,
+                      amount: Number(t.amount),
+                      method:
+                        t.method === 'transfermovil'
+                          ? 'Transfermóvil'
+                          : t.method === 'enzona'
+                            ? 'EnZona'
+                            : 'Efectivo',
+                    })),
+                    monthLabel: new Date().toLocaleDateString('es-ES', {
+                      month: 'long',
+                      year: 'numeric',
+                    }),
+                    totalRevenue: monthRevenue,
+                  });
+                } catch (err) {
+                  console.error(err);
+                  toast.error('Error al exportar');
+                }
+              }}
             >
               <Download className="mr-2 h-4 w-4" /> Exportar PDF
             </Button>
