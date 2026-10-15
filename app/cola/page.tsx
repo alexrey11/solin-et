@@ -60,7 +60,6 @@ import {
   useSolineraReservations,
   useAcceptReservation,
   useRejectReservation,
-  useCompleteReservation,
   ReservationRemote,
 } from '@/lib/queries/reservas';
 import { ChargePointConfig } from '@/lib/db';
@@ -172,8 +171,7 @@ export default function ColaPage() {
   const { data: solinera, isLoading: loadingSolinera } = useSolineraActiva();
   const { data: queue = [], isLoading: loadingQueue } = useQueue();
   const { data: todayTransactions = [] } = useTodayTransactions();
-  const { data: reservations = [], isLoading: loadingReservations } =
-    useSolineraReservations();
+  const { data: reservations = [] } = useSolineraReservations();
 
   const addToQueue = useAddToQueue();
   const startCharge = useStartCharge();
@@ -181,7 +179,6 @@ export default function ColaPage() {
   const removeFromQueue = useRemoveFromQueue();
   const acceptReservation = useAcceptReservation();
   const rejectReservation = useRejectReservation();
-  const completeReservation = useCompleteReservation();
 
   // ===== RESERVAS FILTRADAS =====
   const pendingReservations = reservations.filter(
@@ -247,32 +244,34 @@ export default function ColaPage() {
   const getPointById = (id: string) =>
     CHARGE_POINTS.find((p) => p.id === id);
 
-  // ===== ACCIONES DE RESERVAS =====
-  const handleAcceptReservation = async (r: ReservationRemote) => {
-    try {
-      await acceptReservation.mutateAsync(r.id);
-      toast.success('Reserva aceptada. El conductor fue notificado.');
-    } catch (err: any) {
-      toast.error(err.message || 'Error al aceptar');
-    }
+  // ===== ACCIONES DE RESERVAS (OFFLINE-FIRST) =====
+  const handleAcceptReservation = (r: ReservationRemote) => {
+    acceptReservation.mutate(r.id, {
+      onSuccess: () => {
+        console.log('✅ Reserva aceptada y sincronizada');
+      },
+      onError: (err: any) => {
+        console.error('Error al sincronizar:', err);
+        toast.error('Se sincronizará cuando vuelva la conexión');
+      },
+    });
+
+    // Feedback inmediato
+    toast.success('Reserva aceptada. Conductor notificado.');
   };
 
-  const handleRejectReservation = async (r: ReservationRemote) => {
-    try {
-      await rejectReservation.mutateAsync(r.id);
-      toast.info('Reserva rechazada');
-    } catch (err: any) {
-      toast.error(err.message || 'Error al rechazar');
-    }
-  };
+  const handleRejectReservation = (r: ReservationRemote) => {
+    rejectReservation.mutate(r.id, {
+      onSuccess: () => {
+        console.log('✅ Reserva rechazada y sincronizada');
+      },
+      onError: (err: any) => {
+        console.error('Error al sincronizar:', err);
+        toast.error('Se sincronizará cuando vuelva la conexión');
+      },
+    });
 
-  const handleNoShow = async (r: ReservationRemote) => {
-    try {
-      await rejectReservation.mutateAsync(r.id);
-      toast.info('Reserva cancelada por no-show');
-    } catch (err: any) {
-      toast.error(err.message || 'Error al cancelar');
-    }
+    toast.info('Reserva rechazada');
   };
 
   // ===== INICIAR CARGA =====
@@ -301,7 +300,7 @@ export default function ColaPage() {
     return { kwh: Math.round(kwh * 10) / 10, amount };
   };
 
-  const confirmStart = async () => {
+  const confirmStart = () => {
     if (!startItem) return;
     if (!selectedPoint) {
       toast.error('Selecciona un punto de carga');
@@ -323,22 +322,30 @@ export default function ColaPage() {
 
     const estimated = calculateAmount(point.power, duration, point.pricePerKwh);
 
-    try {
-      await startCharge.mutateAsync({
+    // ✅ Offline-first
+    startCharge.mutate(
+      {
         queueItemId: startItem.id,
         pointId: selectedPoint,
         durationMin: duration,
         amount: estimated,
-      });
+      },
+      {
+        onSuccess: () => {
+          console.log('✅ Carga iniciada y sincronizada');
+        },
+        onError: (err: any) => {
+          console.error('Error al sincronizar:', err);
+          toast.error('Se sincronizará cuando vuelva la conexión');
+        },
+      }
+    );
 
-      toast.success(`Carga iniciada en ${selectedPoint} (${point.power}kW)`);
-      setStartOpen(false);
-      setStartItem(null);
-      setSelectedPoint(null);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || 'Error al iniciar carga');
-    }
+    // Feedback inmediato
+    toast.success(`Carga iniciada en ${selectedPoint} (${point.power}kW)`);
+    setStartOpen(false);
+    setStartItem(null);
+    setSelectedPoint(null);
   };
 
   // ===== COBRAR =====
@@ -365,7 +372,7 @@ export default function ColaPage() {
     setCollectOpen(true);
   };
 
-  const confirmCollect = async () => {
+  const confirmCollect = () => {
     if (!collectItem) return;
 
     const finalAmount = parseInt(collectAmount) || collectItem.amount || 0;
@@ -381,23 +388,31 @@ export default function ColaPage() {
       );
     }
 
-    try {
-      await completeCharge.mutateAsync({
+    // ✅ Offline-first: fire and forget
+    completeCharge.mutate(
+      {
         queueItemId: collectItem.id,
         amount: finalAmount,
         method: collectMethod,
         driverName: collectItem.name,
         plate: collectItem.plate,
         durationMin,
-      });
+      },
+      {
+        onSuccess: () => {
+          console.log('✅ Cobro sincronizado');
+        },
+        onError: (err: any) => {
+          console.error('Error al sincronizar cobro:', err);
+          toast.error('Se sincronizará cuando vuelva la conexión');
+        },
+      }
+    );
 
-      toast.success(`Cobro registrado: ${finalAmount} CUP (${collectMethod})`);
-      setCollectOpen(false);
-      setCollectItem(null);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || 'Error al cobrar');
-    }
+    // Feedback inmediato
+    toast.success(`Cobro registrado: ${finalAmount} CUP (${collectMethod})`);
+    setCollectOpen(false);
+    setCollectItem(null);
   };
 
   // ===== AÑADIR VEHÍCULO =====
@@ -407,7 +422,7 @@ export default function ColaPage() {
     setNewPlate('');
   };
 
-  const handleAddVehicle = async () => {
+  const handleAddVehicle = () => {
     if (!newName.trim()) {
       toast.error('Escribe el nombre del cliente');
       return;
@@ -417,29 +432,41 @@ export default function ColaPage() {
       return;
     }
 
-    try {
-      await addToQueue.mutateAsync({
+    // ✅ Offline-first
+    addToQueue.mutate(
+      {
         name: newName.trim(),
         car: newCar.trim() || 'Vehículo Eléctrico',
         plate: newPlate.trim().toUpperCase(),
         amount: 0,
-      });
+      },
+      {
+        onSuccess: () => {
+          console.log('✅ Vehículo sincronizado');
+        },
+        onError: (err: any) => {
+          console.error('Error al sincronizar:', err);
+          toast.error('Se sincronizará cuando vuelva la conexión');
+        },
+      }
+    );
 
-      resetAddForm();
-      setAddOpen(false);
-      toast.success(`${newName.trim()} añadido a la cola`);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || 'Error al añadir');
-    }
+    // Feedback inmediato
+    toast.success(`${newName.trim()} añadido a la cola`);
+    resetAddForm();
+    setAddOpen(false);
   };
 
-  const handleRemove = async (id: string) => {
-    try {
-      await removeFromQueue.mutateAsync(id);
-    } catch (err: any) {
-      toast.error('Error al eliminar');
-    }
+  // ===== ELIMINAR =====
+  const handleRemove = (id: string) => {
+    removeFromQueue.mutate(id, {
+      onSuccess: () => {
+        console.log('✅ Eliminado y sincronizado');
+      },
+      onError: (err: any) => {
+        console.error('Error al sincronizar:', err);
+      },
+    });
   };
 
   // ===== STATS =====
@@ -478,7 +505,7 @@ export default function ColaPage() {
       )
       : 0;
 
-  // ===== LOADING INICIAL =====
+  // ===== LOADING =====
   if (loadingSolinera) {
     return (
       <AppShell>
@@ -533,7 +560,7 @@ export default function ColaPage() {
           }
         />
 
-        {/* ===== INGRESOS DEL DÍA ===== */}
+        {/* Ingresos del día */}
         <FadeIn delay={0.03}>
           <GlassCard className="border-primary/30 bg-gradient-to-br from-primary/10 to-transparent p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -582,7 +609,7 @@ export default function ColaPage() {
           </GlassCard>
         </FadeIn>
 
-        {/* ===== SOLICITUDES DE RESERVA ===== */}
+        {/* Solicitudes de reserva */}
         {pendingReservations.length > 0 && (
           <FadeIn delay={0.05}>
             <GlassCard className="border-info/30 bg-info/5 p-6">
@@ -645,7 +672,6 @@ export default function ColaPage() {
                         variant="ghost"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => handleRejectReservation(r)}
-                        disabled={rejectReservation.isPending}
                       >
                         <X className="mr-1 h-4 w-4" /> Rechazar
                       </Button>
@@ -653,7 +679,6 @@ export default function ColaPage() {
                         size="sm"
                         className="gradient-solar text-white hover:opacity-90"
                         onClick={() => handleAcceptReservation(r)}
-                        disabled={acceptReservation.isPending}
                       >
                         <Check className="mr-1 h-4 w-4" /> Aceptar
                       </Button>
@@ -665,7 +690,7 @@ export default function ColaPage() {
           </FadeIn>
         )}
 
-        {/* ===== ESPERANDO LLEGADA ===== */}
+        {/* Esperando llegada */}
         {confirmedReservations.length > 0 && (
           <FadeIn delay={0.08}>
             <GlassCard className="border-success/30 bg-success/5 p-6">
@@ -717,8 +742,7 @@ export default function ColaPage() {
                         size="sm"
                         variant="outline"
                         className="text-destructive"
-                        onClick={() => handleNoShow(r)}
-                        disabled={rejectReservation.isPending}
+                        onClick={() => handleRejectReservation(r)}
                       >
                         <X className="mr-1 h-4 w-4" /> No llegó
                       </Button>
@@ -739,7 +763,7 @@ export default function ColaPage() {
           </FadeIn>
         )}
 
-        {/* ===== PUNTOS DE CARGA ===== */}
+        {/* Puntos de carga */}
         <FadeIn delay={0.15}>
           <GlassCard className="p-5">
             <div className="mb-3 flex items-center justify-between">
@@ -788,7 +812,7 @@ export default function ColaPage() {
           </GlassCard>
         </FadeIn>
 
-        {/* ===== LISTA DE VEHÍCULOS ===== */}
+        {/* Lista de vehículos */}
         <FadeIn delay={0.2}>
           <GlassCard className="p-6">
             <div className="mb-4 flex items-center justify-between">
@@ -895,10 +919,7 @@ export default function ColaPage() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => openStartDialog(item)}
-                                disabled={
-                                  freePoints.length === 0 ||
-                                  startCharge.isPending
-                                }
+                                disabled={freePoints.length === 0}
                               >
                                 <PlayCircle className="mr-1 h-4 w-4" /> Iniciar
                               </Button>
@@ -908,7 +929,6 @@ export default function ColaPage() {
                                 size="sm"
                                 className="gradient-solar text-white hover:opacity-90"
                                 onClick={() => openCollectDialog(item)}
-                                disabled={completeCharge.isPending}
                               >
                                 <DollarSign className="mr-1 h-4 w-4" /> Cobrar
                               </Button>
@@ -918,7 +938,6 @@ export default function ColaPage() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleRemove(item.id)}
-                                disabled={removeFromQueue.isPending}
                               >
                                 <X className="h-4 w-4" />
                               </Button>
@@ -955,7 +974,7 @@ export default function ColaPage() {
           </GlassCard>
         </FadeIn>
 
-        {/* ===== REGISTRO DEL DÍA ===== */}
+        {/* Registro del día */}
         <FadeIn delay={0.3}>
           <GlassCard className="p-6">
             <div className="mb-4 flex items-center justify-between">
@@ -1040,10 +1059,7 @@ export default function ColaPage() {
         </FadeIn>
       </div>
 
-      {/* ===== DIÁLOGOS (iniciar, cobrar, añadir) ===== */}
-      {/* Los mismos diálogos de la versión anterior */}
-      {/* ... los pego abajo sin repetir para no alargar ... */}
-
+      {/* ===== DIÁLOGO INICIAR CARGA ===== */}
       <Dialog open={startOpen} onOpenChange={setStartOpen}>
         <DialogContent className="glass-strong max-w-lg border-border/50">
           <DialogHeader>
@@ -1158,24 +1174,16 @@ export default function ColaPage() {
             <Button
               className="gradient-solar text-white hover:opacity-90"
               onClick={confirmStart}
-              disabled={!selectedPoint || startCharge.isPending}
+              disabled={!selectedPoint}
             >
-              {startCharge.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Iniciando...
-                </>
-              ) : (
-                <>
-                  <PlayCircle className="mr-2 h-4 w-4" />
-                  Iniciar carga
-                </>
-              )}
+              <PlayCircle className="mr-2 h-4 w-4" />
+              Iniciar carga
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* ===== DIÁLOGO COBRAR ===== */}
       <Dialog open={collectOpen} onOpenChange={setCollectOpen}>
         <DialogContent className="glass-strong border-border/50">
           <DialogHeader>
@@ -1277,24 +1285,15 @@ export default function ColaPage() {
             <Button
               className="gradient-solar text-white hover:opacity-90"
               onClick={confirmCollect}
-              disabled={completeCharge.isPending}
             >
-              {completeCharge.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Confirmar cobro
-                </>
-              )}
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Confirmar cobro
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* ===== DIÁLOGO AÑADIR VEHÍCULO ===== */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="glass-strong border-border/50">
           <DialogHeader>
@@ -1353,21 +1352,10 @@ export default function ColaPage() {
             <Button
               className="gradient-solar text-white hover:opacity-90"
               onClick={handleAddVehicle}
-              disabled={
-                !newName.trim() || !newPlate.trim() || addToQueue.isPending
-              }
+              disabled={!newName.trim() || !newPlate.trim()}
             >
-              {addToQueue.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Añadiendo...
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Añadir a la cola
-                </>
-              )}
+              <Plus className="mr-2 h-4 w-4" />
+              Añadir a la cola
             </Button>
           </DialogFooter>
         </DialogContent>

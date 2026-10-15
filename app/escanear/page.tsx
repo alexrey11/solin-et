@@ -9,12 +9,9 @@ import {
     X,
     AlertCircle,
     Clock,
-    Zap,
     DollarSign,
     Keyboard,
     RefreshCw,
-    Award,
-    Loader2,
 } from 'lucide-react';
 import { AppShell } from '@/components/soli/app-shell';
 import { GlassCard, SoliBadge } from '@/components/soli/glass-card';
@@ -27,7 +24,6 @@ import { getCurrentUser } from '@/lib/auth';
 import {
     useReservationByShortCode,
     useCompleteReservation,
-    useSolineraReservations,
     ReservationRemote,
 } from '@/lib/queries/reservas';
 import { useAddToQueue } from '@/lib/queries/cola';
@@ -61,10 +57,6 @@ export default function EscanearPage() {
     const [shortCode, setShortCode] = React.useState('');
     const [checkingAccess, setCheckingAccess] = React.useState(true);
     const [resetKey, setResetKey] = React.useState(0);
-    const [driverHistory, setDriverHistory] = React.useState({
-        count: 0,
-        total: 0,
-    });
 
     const scannerRef = React.useRef<any>(null);
     const scannerId = `qr-scanner-region-${resetKey}`;
@@ -214,29 +206,40 @@ export default function EscanearPage() {
         }
     };
 
-    const handleConfirm = async () => {
+    const handleConfirm = () => {
         if (!scanned || !matchedReservation) return;
         setProcessing(true);
 
-        try {
-            // 1. Añadir a la cola
-            await addToQueue.mutateAsync({
+        // ✅ Offline-first: fire and forget
+        addToQueue.mutate(
+            {
                 name: scanned.driverName,
                 plate: scanned.plate,
                 car: scanned.car,
                 amount: scanned.amount,
-            });
+            },
+            {
+                onSuccess: () => {
+                    console.log('✅ Vehículo añadido a la cola');
+                },
+                onError: (err: any) => {
+                    console.error('Error al sincronizar:', err);
+                },
+            }
+        );
 
-            // 2. Marcar reserva como completed
-            await completeReservation.mutateAsync(matchedReservation.id);
+        completeReservation.mutate(matchedReservation.id, {
+            onSuccess: () => {
+                console.log('✅ Reserva completada');
+            },
+            onError: (err: any) => {
+                console.error('Error al completar reserva:', err);
+            },
+        });
 
-            toast.success(`${scanned.driverName} añadido a la cola`);
-            router.push('/cola');
-        } catch (err: any) {
-            console.error(err);
-            toast.error(err.message || 'Error al procesar');
-            setProcessing(false);
-        }
+        // Feedback inmediato
+        toast.success(`${scanned.driverName} añadido a la cola`);
+        router.push('/cola');
     };
 
     const handleReset = () => {
@@ -252,7 +255,6 @@ export default function EscanearPage() {
         setScannerReady(false);
         setScannerActive(false);
         setManualMode(false);
-        setDriverHistory({ count: 0, total: 0 });
         setResetKey((k) => k + 1);
     };
 
@@ -459,23 +461,10 @@ export default function EscanearPage() {
                                     <Button
                                         className="flex-1 gradient-solar text-white hover:opacity-90"
                                         onClick={handleConfirm}
-                                        disabled={
-                                            processing ||
-                                            addToQueue.isPending ||
-                                            completeReservation.isPending
-                                        }
+                                        disabled={processing}
                                     >
-                                        {processing ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                Añadiendo...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Check className="mr-2 h-4 w-4" />
-                                                Dar entrada
-                                            </>
-                                        )}
+                                        <Check className="mr-2 h-4 w-4" />
+                                        {processing ? 'Añadiendo...' : 'Dar entrada'}
                                     </Button>
                                 </div>
                             </motion.div>

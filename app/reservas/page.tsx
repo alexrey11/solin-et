@@ -61,10 +61,7 @@ export default function ReservasPage() {
     // Notificar cuando una reserva pasa a 'confirmed'
     React.useEffect(() => {
         reservations.forEach((r) => {
-            if (
-                r.status === 'confirmed' &&
-                !seenConfirmedRef.current.has(r.id)
-            ) {
+            if (r.status === 'confirmed' && !seenConfirmedRef.current.has(r.id)) {
                 seenConfirmedRef.current.add(r.id);
                 toast.success(
                     `¡Tu reserva para las ${r.slot} fue ACEPTADA! Ve a la solinera.`,
@@ -74,13 +71,18 @@ export default function ReservasPage() {
         });
     }, [reservations]);
 
-    const handleCancel = async (id: string) => {
-        try {
-            await cancelReservation.mutateAsync(id);
-            toast.success('Reserva cancelada');
-        } catch (err: any) {
-            toast.error(err.message || 'Error al cancelar');
-        }
+    const handleCancel = (id: string) => {
+        // ✅ Offline-first
+        cancelReservation.mutate(id, {
+            onSuccess: () => {
+                console.log('✅ Cancelación sincronizada');
+            },
+            onError: (err: any) => {
+                console.error('Error al sincronizar:', err);
+            },
+        });
+
+        toast.success('Reserva cancelada');
     };
 
     const pending = reservations.filter((r) => r.status === 'pending');
@@ -220,9 +222,6 @@ export default function ReservasPage() {
                                                         <p className="mt-1 text-3xl font-bold tracking-[0.3em] text-primary">
                                                             {r.short_code}
                                                         </p>
-                                                        <p className="mt-1 text-xs text-muted-foreground">
-                                                            Si el negocio no tiene cámara, dale este código
-                                                        </p>
                                                     </div>
 
                                                     <Button
@@ -239,7 +238,8 @@ export default function ReservasPage() {
                                                     className="w-full gradient-solar text-white hover:opacity-90"
                                                     onClick={() => setExpandedQR(r.id)}
                                                 >
-                                                    <QrCode className="mr-2 h-4 w-4" /> Mostrar mi QR y código
+                                                    <QrCode className="mr-2 h-4 w-4" /> Mostrar mi QR y
+                                                    código
                                                 </Button>
                                             )}
                                         </div>
@@ -293,7 +293,6 @@ export default function ReservasPage() {
                                                 size="sm"
                                                 variant="ghost"
                                                 onClick={() => handleCancel(r.id)}
-                                                disabled={cancelReservation.isPending}
                                             >
                                                 <X className="h-4 w-4" />
                                             </Button>

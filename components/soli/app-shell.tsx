@@ -30,6 +30,7 @@ import { getCurrentUser, logoutUser } from '@/lib/auth';
 import { User } from '@/lib/db';
 import { toast } from 'sonner';
 import { useSolineraReservations } from '@/lib/queries/reservas';
+import { OfflineBadge } from '@/components/offline-badge';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -38,7 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [online, setOnline] = React.useState(true);
   const [user, setUser] = React.useState<User | null | undefined>(undefined);
 
-  // Badge de reservas pendientes desde Supabase
+  // Badge de reservas pendientes
   const { data: reservations = [] } = useSolineraReservations();
   const pendingCount = reservations.filter(
     (r) => r.status === 'pending'
@@ -247,7 +248,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+          <OfflineBadge />
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -38,10 +38,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAllSolineras, SolineraRemote } from '@/lib/queries/solinera';
-import {
-  useCreateReservation,
-  useMyReservations,
-} from '@/lib/queries/reservas';
+import { useCreateReservation } from '@/lib/queries/reservas';
 import { createClient } from '@/lib/supabase/client';
 
 const RealMapDynamic = dynamic(
@@ -101,28 +98,52 @@ export default function MapaPage() {
     window.open(url, '_blank');
   };
 
-  const confirmReserve = async () => {
+  const confirmReserve = () => {
     if (!selected || !selectedSlot || !paymentMethod) return;
 
-    try {
-      const reservation = await createReservation.mutateAsync({
-        solineraId: selected.id,
-        slot: selectedSlot,
-        amount: 20 * (selected.price_per_kwh || 5),
-        method: paymentMethod,
-      });
+    const solineraId = selected.id;
+    const solineraName = selected.name;
+    const pricePerKwh = selected.price_per_kwh;
+    const slot = selectedSlot;
+    const method = paymentMethod;
 
-      setLastReservation({
-        ...reservation,
-        solineraName: selected.name,
-      });
-      toast.success(`Reserva confirmada con ${paymentMethod}`);
-      setReserveOpen(false);
-      setConfirmOpen(true);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || 'Error al reservar');
-    }
+    // ✅ Offline-first
+    createReservation.mutate(
+      {
+        solineraId,
+        slot,
+        amount: 20 * (pricePerKwh || 5),
+        method,
+      },
+      {
+        onSuccess: (reservation) => {
+          setLastReservation({
+            ...reservation,
+            solineraName,
+          });
+          setConfirmOpen(true);
+        },
+        onError: (err: any) => {
+          console.error('Error al reservar:', err);
+          toast.error('Se sincronizará cuando vuelva la conexión');
+          // Aun así mostramos el QR porque la reserva está guardada localmente
+          setLastReservation({
+            id: `local-${Date.now()}`,
+            short_code: 'PENDIENTE',
+            solinera_id: solineraId,
+            solineraName,
+            driver_id: driverProfile?.id,
+            slot,
+            amount: 20 * (pricePerKwh || 5),
+            payment_method: method,
+          });
+          setConfirmOpen(true);
+        },
+      }
+    );
+
+    toast.success(`Reserva confirmada con ${method}`);
+    setReserveOpen(false);
   };
 
   const slots = [
@@ -335,9 +356,10 @@ export default function MapaPage() {
               </div>
 
               <div className="space-y-2">
-                <Label icon={<Calendar className="h-4 w-4" />}>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Calendar className="h-4 w-4" />
                   Selecciona un horario
-                </Label>
+                </label>
                 <div className="grid grid-cols-3 gap-2">
                   {slots.map((slot) => (
                     <button
@@ -375,9 +397,10 @@ export default function MapaPage() {
               </div>
 
               <div className="space-y-2">
-                <Label icon={<CreditCard className="h-4 w-4" />}>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <CreditCard className="h-4 w-4" />
                   Método de pago
-                </Label>
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   <PaymentButton
                     active={paymentMethod === 'transfermovil'}
@@ -412,21 +435,10 @@ export default function MapaPage() {
             </Button>
             <Button
               className="gradient-solar text-white hover:opacity-90"
-              disabled={
-                !selectedSlot ||
-                !paymentMethod ||
-                createReservation.isPending
-              }
+              disabled={!selectedSlot || !paymentMethod}
               onClick={confirmReserve}
             >
-              {createReservation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creando...
-                </>
-              ) : (
-                'Confirmar reserva'
-              )}
+              Confirmar reserva
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -532,21 +544,6 @@ function FilterChip({
     >
       {children}
     </button>
-  );
-}
-
-function Label({
-  icon,
-  children,
-}: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex items-center gap-2 text-sm font-medium">
-      {icon}
-      {children}
-    </label>
   );
 }
 
